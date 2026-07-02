@@ -1,0 +1,93 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Kimera Core",
+  "projectDescription": "A Python utility library providing reusable components for caching, serialization, hashing, logging, and data extraction.",
+  "theme": "luma",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#EFF6FF",
+  "darkColor": "#1E3A5F",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Components",
+            "pages": [
+              "components/cache-local",
+              "components/cache-remote",
+              "components/serializers",
+              "components/extractor"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "utilities/hash",
+              "utilities/import-utils",
+              "utilities/exceptions",
+              "utilities/logger"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/serialization",
+              "concepts/design-patterns",
+              "concepts/oop"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "In-memory and thread-local cache engines with TTL and size regulation",
+    "Remote cache backends for Redis and Memcached",
+    "Custom JSON serialization/deserialization supporting datetime, date, list, tuple, and dict types",
+    "Pickle-based binary serialization",
+    "MD5 hash builder for arbitrary Python objects",
+    "Dynamic module import utilities",
+    "Configurable structured logging with Logstash support",
+    "ZIP file extractor abstraction",
+    "Cache decorators for functions (@thread_local_cache, @in_memory_local_cache)"
+  ],
+  "publicApiSurface": [
+    "InMemoryCacheEngine.get(key)",
+    "InMemoryCacheEngine.set(key, value, timeout, size)",
+    "InMemoryCacheEngine.delete(key)",
+    "InMemoryCacheEngine.exists(key)",
+    "InMemoryCacheEngine.clear()",
+    "ThreadCacheEngine.get(key)",
+    "ThreadCacheEngine.set(key, value, timeout, size)",
+    "ThreadCacheEngine.delete(key)",
+    "ThreadCacheEngine.exists(key)",
+    "ThreadCacheEngine.clear()",
+    "@thread_local_cache(key, timeout, size)",
+    "@in_memory_local_cache(key, timeout, size)",
+    "RedisEngine.get/set/delete/exists/clear/close",
+    "MemcachedEngine.get/set/delete/exists/clear/close",
+    "KimeraSerializer.serialize(object)",
+    "KimeraSerializer.deserialize(object)",
+    "KimeraEncoder",
+    "KimeraDecoder",
+    "Pickle.serializer(object)",
+    "Pickle.deserializer(bytes)",
+    "build_hash(object)",
+    "ImportUtils.module_exists(module_name)",
+    "ImportUtils.raise_exception_if_module_not_exists(module_name)",
+    "ImportUtils.fullname(object)",
+    "ImportUtils.get_attr_of_module(module_name, attribute_name)",
+    "ExceptionsUtils.raise_exception_if_key_not_in_dict(key, dict)",
+    "KimeraLogstashHandler",
+    "RawZipExtractor.read(**kwargs)"
+  ]
+}

@@ -1,0 +1,250 @@
+---
+title: "Object-Oriented Programming Principles in Python Code"
+sidebarTitle: "OOP"
+description: "OOP in Kimera Core: abstract base classes, encapsulation, inheritance, and polymorphism illustrated with real cache engine and serializer source code."
+---
+
+Object-oriented programming (OOP) is the architectural foundation of Kimera Core. Every cache engine, serializer, and extractor in the library is built from a hierarchy of classes that share behaviour through inheritance, hide implementation details through encapsulation, and expose a uniform interface through polymorphism. Whether you are integrating Kimera Core into an application or writing a custom engine or handler, understanding these four principles — **abstraction**, **inheritance**, **polymorphism**, and **encapsulation** — will make the library's design immediately readable and easy to extend.
+
+## Abstract Base Classes
+
+Python's `abc` module provides two tools for expressing abstract contracts: the `ABC` base class and the `@abstractmethod` decorator. A class that inherits from `ABC` and declares one or more `@abstractmethod` methods cannot be instantiated on its own — attempting to do so raises a `TypeError` at runtime. Any concrete subclass **must** implement every abstract method before Python will allow it to be instantiated.
+
+```python
+from abc import ABC, abstractmethod
+
+class BaseCacheEngine(ABC):
+
+    @abstractmethod
+    def get(self, key: str) -> object: ...
+
+    @abstractmethod
+    def set(self, key: str, value: object, timeout: float, size: int) -> None: ...
+
+    @abstractmethod
+    def delete(self, key: str) -> None: ...
+
+    @abstractmethod
+    def exists(self, key: str) -> bool: ...
+
+    @abstractmethod
+    def clear(self) -> None: ...
+
+# This raises TypeError — abstract methods are not implemented
+# engine = BaseCacheEngine()
+```
+
+Kimera Core uses ABCs as the first layer of every subsystem:
+
+<CardGroup cols={2}>
+  <Card title="BaseCacheEngine" icon="memory">
+    Declares the five cache operations — `get`, `set`, `delete`, `exists`, `clear` — that every engine must implement.
+  </Card>
+  <Card title="LocalCacheEngine" icon="server">
+    Extends `BaseCacheEngine` with a further abstract method, `size_regulator`, and adds two concrete helpers: `normalize_timeout` and `normalize_size`.
+  </Card>
+  <Card title="Extractor" icon="file-zipper">
+    Declares the single `read(**kwargs)` method that all extractor implementations must provide.
+  </Card>
+  <Card title="BaseSerializerHandler" icon="shuffle">
+    Declares `can_i_handle_object_to_serialize`, `can_i_handle_object_to_deserialize`, `build_serializer`, and `build_deserializer` — the contract every serializer handler must satisfy.
+  </Card>
+</CardGroup>
+
+<Note>
+  ABCs enforce a contract at the class level, not just at the type-hint level. If a subclass forgets to implement even one `@abstractmethod`, Python raises `TypeError` the first time the class is instantiated — not at import time. This makes mistakes visible immediately rather than at some distant runtime call site.
+</Note>
+
+## Inheritance Hierarchy in Cache Engines
+
+Kimera Core's cache subsystem is built as a three-level hierarchy. Each level adds a focused layer of responsibility without repeating code from the level above.
+
+```text
+BaseCacheEngine        (ABC — declares the 5 CRUD methods)
+    │
+    └── LocalCacheEngine  (ABC — adds normalize_timeout, normalize_size;
+        │                  declares size_regulator as abstract)
+        │
+        ├── InMemoryCacheEngine   (concrete — stores entries in a dict)
+        └── ThreadCacheEngine     (concrete — stores entries in the current thread)
+```
+
+<Tabs>
+  <Tab title="BaseCacheEngine">
+    The root abstract class. It defines `DEFAULT_TIMEOUT = 300.0` seconds and `DEFAULT_SIZE = 300` elements as class-level constants, and it declares the five operations that every cache engine must support: `get`, `set`, `delete`, `exists`, and `clear`. It contains zero implementation logic.
+
+    ```python
+    class BaseCacheEngine(ABC):
+        DEFAULT_TIMEOUT = 300.0  # seconds
+        DEFAULT_SIZE = 300       # max elements
+
+        @abstractmethod
+        def get(self, key: str) -> object: ...
+
+        @abstractmethod
+        def set(self, key: str, value: object,
+                timeout: float, size: int) -> None: ...
+        # ... delete, exists, clear
+    ```
+  </Tab>
+  <Tab title="LocalCacheEngine">
+    The intermediate abstract class. It contributes two reusable concrete methods — `normalize_timeout` (converts a relative number of seconds into an absolute epoch timestamp) and `normalize_size` (falls back to `DEFAULT_SIZE` when no size is given) — and declares `size_regulator` as an additional abstract method that concrete engines must implement.
+
+    ```python
+    class LocalCacheEngine(BaseCacheEngine):
+
+        @abstractmethod
+        def size_regulator(self, size: int) -> None: ...
+
+        def normalize_timeout(self, timeout: float) -> float:
+            timeout = float(timeout) if timeout else self.DEFAULT_TIMEOUT
+            return time() + timeout
+
+        def normalize_size(self, size: int) -> int:
+            size = int(size) if size else self.DEFAULT_SIZE
+            return size
+    ```
+  </Tab>
+  <Tab title="InMemoryCacheEngine">
+    Stores all cache entries in a plain `dict` (`self.memory_cache`). The `size_regulator` implementation pops the oldest entries when the dict exceeds the configured limit.
+
+    ```python
+    class InMemoryCacheEngine(LocalCacheEngine):
+
+        def __init__(self):
+            self.memory_cache = dict()
+
+        def set(self, key, value, timeout=None, size=None):
+            self.size_regulator(self.normalize_size(size))
+            self.memory_cache[key] = {
+                "timeout": self.normalize_timeout(timeout),
+                "value": value,
+            }
+
+        def get(self, key):
+            result = self.memory_cache.get(key)
+            return result["value"] if result and result["timeout"] > time() \
+                   else self.delete(key)
+        # ... exists, delete, clear, size_regulator
+    ```
+  </Tab>
+  <Tab title="ThreadCacheEngine">
+    Stores entries on `threading.currentThread()`, so each OS thread maintains its own completely isolated cache dict. All five CRUD methods delegate to `_get_thread_local_cache()` instead of a shared instance variable.
+
+    ```python
+    class ThreadCacheEngine(LocalCacheEngine):
+
+        def _get_thread_local_cache(self) -> dict:
+            try:
+                return threading.currentThread().thread_local_cache
+            except AttributeError:
+                self.clear()
+                return threading.currentThread().thread_local_cache
+
+        def set(self, key, value, timeout=None, size=None):
+            self.size_regulator(self.normalize_size(size))
+            self._get_thread_local_cache()[key] = {
+                "timeout": self.normalize_timeout(timeout),
+                "value": value,
+            }
+        # ... get, exists, delete, clear, size_regulator
+    ```
+  </Tab>
+</Tabs>
+
+## Polymorphism
+
+Polymorphism lets one piece of code operate on objects of different types, as long as they all satisfy the same interface. Because `InMemoryCacheEngine` and `ThreadCacheEngine` both implement `BaseCacheEngine`, any function that accepts a `BaseCacheEngine` works unchanged with either engine — or with any future engine you write.
+
+```python
+from components.storage.dynamic.cache.local.engines import (
+    InMemoryCacheEngine,
+    ThreadCacheEngine,
+)
+
+def store_result(cache, key: str, value: object) -> None:
+    """Works with any object that implements BaseCacheEngine."""
+    cache.set(key, value, timeout=60)
+
+# Both calls are valid — the function doesn't know or care which engine it receives
+store_result(InMemoryCacheEngine(), "k1", {"score": 99})
+store_result(ThreadCacheEngine(),   "k2", {"score": 42})
+```
+
+<Tip>
+  This is the same principle that makes the **Strategy** pattern possible. If you want to switch from in-memory caching to thread-local caching, you change one constructor call — the rest of your code stays the same.
+</Tip>
+
+## Encapsulation
+
+Encapsulation hides implementation details behind a public interface, preventing external code from depending on internals that may change. Python signals private members with a leading underscore (`_`) for protected or `__` (name-mangled) for strictly private.
+
+Kimera Core uses both conventions deliberately:
+
+<Accordion title="_file_descriptors in RawZipExtractor">
+  `RawZipExtractor.read()` is the public entry point. The actual ZIP-reading logic lives in the static method `_file_descriptors`, which is an implementation detail. Callers should never call `_file_descriptors` directly — the underscore prefix is a clear signal that the method is subject to change.
+
+  ```python
+  class RawZipExtractor(Extractor):
+
+      def read(self, **kwargs) -> list:
+          ExceptionsUtils.raise_exception_if_key_not_in_dict("filename", kwargs)
+          return self._file_descriptors(**kwargs)  # internal helper
+
+      @staticmethod
+      def _file_descriptors(**kwargs) -> list:
+          from zipfile import ZipFile
+          with ZipFile(**kwargs) as z:
+              return [z.open(file) for file in z.namelist()]
+  ```
+</Accordion>
+
+<Accordion title="__serialize_object in serializer handlers">
+  Each `BaseSerializerHandler` subclass defines `__serialize_object` and `__deserialize_object` as name-mangled static methods. Because of Python's name-mangling rules, `DefaultSerializerHandler.__serialize_object` is stored as `_DefaultSerializerHandler__serialize_object`, making it inaccessible from outside the class without a deliberate workaround.
+
+  ```python
+  class DefaultSerializerHandler(BaseSerializerHandler):
+
+      @staticmethod
+      def __serialize_object(_object):   # name-mangled — truly private
+          return _object
+
+      def build_serializer(self, _object):
+          return json.dumps(
+              {"data": self.__serialize_object(_object),
+               "serializer": self.__class__.__name__},
+              cls=self.encoder_cls()
+          )
+  ```
+
+  The public API is `build_serializer` and `build_deserializer`. Callers interact only with those methods; the conversion logic is fully encapsulated.
+</Accordion>
+
+## Python Modules and Packages
+
+Understanding how Python organises code into modules and packages is essential for navigating Kimera Core's component layout.
+
+- A **module** is any `.py` file. It defines a namespace and can be imported with `import`.
+- A **package** is any directory that contains an `__init__.py` file. It groups related modules and can export a curated public API through its `__init__.py`.
+
+In Kimera Core, this distinction maps directly onto the component structure:
+
+```text
+kimera-core/
+├── components/              # package (__init__.py present)
+│   ├── extractor/           # package
+│   │   └── raw.py           # module — RawZipExtractor, Extractor
+│   ├── storage/
+│   │   └── dynamic/
+│   │       └── cache/
+│   │           └── local/
+│   │               └── engines.py   # module — all cache engine classes
+│   └── tools/
+│       └── serializers/
+│           ├── custom.py    # module — KimeraSerializer, BaseSerializerHandler
+│           └── _pickle.py   # module — Pickle wrapper
+```
+
+<Note>
+  The leading underscore on `_pickle.py` follows the same encapsulation convention used inside classes: it signals that `_pickle` is an internal implementation detail of the `serializers` package, not part of its stable public API. Import `Pickle` directly if you need it, but prefer `KimeraSerializer` for code that should remain portable.
+</Note>

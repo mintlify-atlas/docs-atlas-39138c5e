@@ -1,0 +1,96 @@
+---
+title: "Logger: Structured Logging with Logstash Support"
+sidebarTitle: "Logger"
+description: "Kimera Core includes KimeraLogstashHandler, a UDP DatagramHandler that serializes log records as plain text, plus a ready-to-use DICT_CONFIG."
+---
+
+The `logger` module delivers two complementary pieces: `KimeraLogstashHandler`, a custom UDP handler that ships log records as plain UTF-8 text to a Logstash endpoint, and `DICT_CONFIG`, a ready-to-use dictionary that wires up formatters, handlers, and named loggers in a single `logging.config.dictConfig` call. Together they let you add structured log shipping to any Kimera Core application with minimal configuration. UDP log shipping is a good fit for high-throughput services where a dropped log record is acceptable but blocking on a TCP handshake is not.
+
+## `KimeraLogstashHandler`
+
+`KimeraLogstashHandler` extends `logging.handlers.DatagramHandler` and overrides a single method — `makePickle` — to change the serialisation format. The standard `DatagramHandler.makePickle` produces a binary pickle blob, which Logstash cannot parse natively. The Kimera override replaces that with `str.encode(self.format(record))`, converting the already-formatted log string into raw UTF-8 bytes. This means Logstash (or any UDP listener) receives a human-readable line in the format defined by the attached formatter, with no deserialisation step required.
+
+<CardGroup cols={2}>
+  <Card title="Parent class" icon="layer-group">
+    `logging.handlers.DatagramHandler` — sends each record as a single UDP datagram to the configured host and port.
+  </Card>
+  <Card title="Transport" icon="tower-broadcast">
+    UDP to `localhost:9998` by default, as declared in `DICT_CONFIG`. Override `host` and `port` in your own config dict.
+  </Card>
+</CardGroup>
+
+**`makePickle(record: logging.LogRecord) -> bytes`**
+
+Serialises the log record by calling `self.format(record)` (which applies the configured formatter) and encoding the resulting string as UTF-8 bytes. The return value is transmitted directly as the UDP payload.
+
+## `DICT_CONFIG`
+
+`DICT_CONFIG` is a fully populated `logging.config.dictConfig`-compatible dictionary that can be used as-is or extended. Its structure follows the standard Python logging schema:
+
+<Accordion title="Formatters (3 defined)">
+  All three formatters use the same format string for consistent output across transports:
+
+  ```
+  %(asctime)s [%(levelname)s] %(name)s: %(message)s
+  ```
+
+  | Name | Purpose |
+  |------|---------|
+  | `stream` | Applied to the console stream handler |
+  | `file` | Applied to the (commented-out) file handler |
+  | `logstash` | Applied to the UDP Logstash handler |
+</Accordion>
+
+<Accordion title="Handlers (2 active)">
+  | Name | Class | Level | Destination |
+  |------|-------|-------|-------------|
+  | `stream_handler` | `logging.StreamHandler` | `DEBUG` | stdout / stderr |
+  | `logstash_handler` | `KimeraLogstashHandler` | `INFO` | UDP `localhost:9998` |
+
+  A `file_handler` (`logging.FileHandler`, level `ERROR`, file `records.log`) is present in the source as a commented-out template and can be activated by copying it into your own config dict.
+</Accordion>
+
+<Accordion title="Loggers (2 defined)">
+  Both `logger1` and `logger2` are configured identically: level `DEBUG`, `propagate: True`, and both `stream_handler` and `logstash_handler` attached.
+</Accordion>
+
+## Configuring and Using the Logger
+
+Import `DICT_CONFIG`, pass it to `logging.config.dictConfig`, then retrieve any named logger with `logging.getLogger`. Log records flow to handlers based on their effective level: `DEBUG` and above go to `stream_handler`; `INFO` and above go to `logstash_handler`.
+
+```python
+import logging
+import logging.config
+from components.tools.utils.logger import DICT_CONFIG
+
+logging.config.dictConfig(DICT_CONFIG)
+logger = logging.getLogger('logger1')
+
+logger.info('Processing started')   # goes to stream + logstash
+logger.debug('Debug detail')        # goes to stream only (logstash level is INFO)
+logger.error('Something failed')    # goes to both
+```
+
+## Customizing `DICT_CONFIG`
+
+Because `DICT_CONFIG` is a plain Python dictionary, you can deep-copy it and modify the copy before passing it to `dictConfig`. The example below activates the file handler that ships commented out in the source:
+
+```python
+import copy
+from components.tools.utils.logger import DICT_CONFIG
+
+config = copy.deepcopy(DICT_CONFIG)
+config['handlers']['file_handler'] = {
+    'level': 'ERROR',
+    'filename': 'records.log',
+    'class': 'logging.FileHandler',
+    'formatter': 'file'
+}
+config['loggers']['logger1']['handlers'].append('file_handler')
+```
+
+After this change, `logger1` will write `ERROR`-level records to `records.log` in addition to streaming them to the console and shipping them over UDP.
+
+<Note>
+  The `logstash_handler` sends log records over UDP to `localhost:9998`. Make sure Logstash (or any UDP listener) is running on that port before enabling the handler in production. Because UDP is connectionless, no error is raised if the destination is unreachable — records will be silently dropped.
+</Note>

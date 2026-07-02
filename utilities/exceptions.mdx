@@ -1,0 +1,53 @@
+---
+title: "ExceptionsUtils: Guard Helpers for Input Validation"
+sidebarTitle: "Exceptions"
+description: "ExceptionsUtils provides lightweight guard helpers that raise descriptive exceptions when required keys are missing from dictionaries or kwargs."
+---
+
+`ExceptionsUtils` is a static-method utility class that centralises the repetitive pattern of validating required keys before a function proceeds. Rather than scattering `if key not in options: raise Exception(...)` blocks across your codebase, you delegate that check to a single, consistently worded guard. Kimera Core uses this internally — for example, `RawZipExtractor` calls `raise_exception_if_key_not_in_dict('filename', options)` to assert that callers always supply the required `filename` key before any file I/O begins. The resulting error messages are human-readable and actionable, making misconfiguration obvious at development time.
+
+## `raise_exception_if_key_not_in_dict`
+
+Checks whether `key` is present in `_dict` and raises an `Exception` with a descriptive message if it is not. The check uses Python's `in` operator, so it works with any mapping type including plain `dict` and `**kwargs`.
+
+<ParamField path="key" type="str" required>
+  The key that must be present in the dictionary. Used verbatim in the error message.
+</ParamField>
+
+<ParamField path="_dict" type="dict" required>
+  The dictionary (or unpacked `**kwargs`) to inspect. No exception is raised when `key` is found.
+</ParamField>
+
+**Raises:** `Exception` with message `Key {key} not defined in options. Please define it!` when the key is absent.
+
+```python
+from components.tools.utils.exceptions import ExceptionsUtils
+
+options = {'filename': 'data.zip', 'mode': 'r'}
+
+# No exception — key exists
+ExceptionsUtils.raise_exception_if_key_not_in_dict('filename', options)
+
+# Raises: Exception: Key output_dir not defined in options. Please define it!
+ExceptionsUtils.raise_exception_if_key_not_in_dict('output_dir', options)
+```
+
+## Using `ExceptionsUtils` in Your Own Code
+
+The guard is most effective at the entry point of any function that accepts an options dictionary or variadic keyword arguments. Placing all checks before any business logic ensures that the function either receives everything it needs or fails immediately with a clear message — never silently mid-execution.
+
+```python
+from components.tools.utils.exceptions import ExceptionsUtils
+
+def process_data(**kwargs):
+    ExceptionsUtils.raise_exception_if_key_not_in_dict('input_path', kwargs)
+    ExceptionsUtils.raise_exception_if_key_not_in_dict('output_path', kwargs)
+    # safe to proceed
+    input_path = kwargs['input_path']
+    output_path = kwargs['output_path']
+    ...
+```
+
+<Tip>
+  Chain multiple guard calls at the top of any function that accepts an options dict. This creates a self-documenting contract: every required key is listed explicitly, and the error messages guide callers directly to what is missing.
+</Tip>

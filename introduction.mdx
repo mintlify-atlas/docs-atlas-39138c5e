@@ -1,0 +1,70 @@
+---
+title: "Kimera Core: Python Utility Library for Developers"
+sidebarTitle: "Introduction"
+description: "Kimera Core provides caching, serialization, hashing, logging, and extraction utilities for Python 3.6+. Build faster with reusable, tested components."
+---
+
+Kimera Core is a lightweight Python utility library designed to eliminate repetitive boilerplate when building production-grade applications. It ships a cohesive set of components — in-memory and thread-local caching, smart JSON serialization, MD5 hashing, structured logging, and module introspection — so you can focus on your domain logic instead of reinventing infrastructure primitives. It targets Python 3.6 and above, carries no mandatory third-party dependencies, and is straightforward to extend thanks to its abstract-base-class architecture.
+
+## Architecture
+
+Every Kimera Core component is rooted in an abstract base class (ABC), which guarantees a consistent interface and lets you swap or extend any engine without changing the calling code. The cache subsystem exposes a three-level hierarchy:
+
+| Class | Type | Responsibility |
+|---|---|---|
+| `BaseCacheEngine` | ABC | Declares the core contract: `get`, `set`, `delete`, `exists`, `clear` |
+| `LocalCacheEngine` | ABC (extends `BaseCacheEngine`) | Adds `normalize_timeout`, `normalize_size`, and the abstract `size_regulator` |
+| `InMemoryCacheEngine` | Concrete | Process-wide dict-backed store with TTL and size eviction |
+| `ThreadCacheEngine` | Concrete | Per-thread store — isolates cache state across threads automatically |
+
+The serializer subsystem follows the same pattern. `BaseSerializerHandler` (ABC) defines `can_i_handle_object_to_serialize`, `can_i_handle_object_to_deserialize`, `build_serializer`, and `build_deserializer`. Concrete handlers (`DictSerializerHandler`, `DateTimeSerializerHandler`, `TupleSerializerHandler`, and others) are composed inside `KimeraSerializer`, which selects the right handler at runtime for any Python object.
+
+<Note>
+  Because all engines inherit from ABCs, you can introduce a custom cache backend — say a file-based store or a cloud key-value service — by subclassing `LocalCacheEngine` and implementing its abstract methods. The rest of your application needs no changes.
+</Note>
+
+## Components
+
+<CardGroup cols={2}>
+  <Card title="Local Cache" icon="database" href="/components/cache-local">
+    In-memory and thread-local cache engines with TTL and configurable max-size eviction.
+  </Card>
+  <Card title="Remote Cache" icon="server" href="/components/cache-remote">
+    Redis and Memcached backends sharing the same `BaseCacheEngine` interface.
+  </Card>
+  <Card title="Serializers" icon="arrows-left-right" href="/components/serializers">
+    Round-trip JSON serialization for dicts, lists, tuples, `datetime`, `date`, and arbitrary Python objects.
+  </Card>
+  <Card title="Extractor" icon="magnifying-glass" href="/components/extractor">
+    Raw data extraction utilities for pulling structured content from unstructured sources.
+  </Card>
+</CardGroup>
+
+## Utilities
+
+<CardGroup cols={2}>
+  <Card title="Hash" icon="fingerprint" href="/utilities/hash">
+    `build_hash` produces a deterministic MD5 hex string from any Python object, including custom class instances.
+  </Card>
+  <Card title="Import Utils" icon="box-open" href="/utilities/import-utils">
+    Runtime module introspection: check existence, resolve fully qualified names, and retrieve attributes dynamically.
+  </Card>
+  <Card title="Exceptions" icon="triangle-exclamation" href="/utilities/exceptions">
+    `ExceptionsUtils` provides guard helpers, such as raising on missing dictionary keys, that keep validation logic concise.
+  </Card>
+  <Card title="Logger" icon="scroll" href="/utilities/logger">
+    Structured logging wrapper that standardises log output across all Kimera Core components.
+  </Card>
+</CardGroup>
+
+## Python Version Compatibility
+
+Kimera Core requires **Python 3.6 or later**. The minimum version is enforced in `setup.py` via `python_requires='>=3.6'`. All standard-library features used — `abc`, `threading`, `hashlib`, `json`, `importlib` — are available in every supported release.
+
+<Tip>
+  If you are running Python 3.7+ you can take advantage of ordered dictionaries by default, which makes `InMemoryCacheEngine`'s size-regulation eviction order predictable: the oldest inserted key is removed first via `dict.popitem()`.
+</Tip>
+
+## License
+
+Kimera Core is released under the **MIT License**. You are free to use, modify, and distribute it in both open-source and commercial projects. See the `LICENSE` file at the root of the repository for the full license text.

@@ -1,0 +1,181 @@
+---
+title: "Local Cache Engines: In-Memory and Thread-Local"
+sidebarTitle: "Local Cache"
+description: "Kimera Core ships two local cache engines — InMemoryCacheEngine and ThreadCacheEngine — both with TTL expiry, max-size eviction, and function decorators."
+---
+
+Local caching in Kimera Core stores key-value pairs entirely within the running Python process — no external service required. Two concrete engines are available: `InMemoryCacheEngine`, which stores data in a plain dictionary on the instance, and `ThreadCacheEngine`, which attaches the cache dictionary to the currently running thread. Use `InMemoryCacheEngine` for process-wide shared state (with a singleton pattern) and `ThreadCacheEngine` when each request or worker thread must maintain completely isolated cache namespaces.
+
+## Class Hierarchy
+
+All cache engines descend from a two-level abstract hierarchy:
+
+<CardGroup cols={2}>
+  <Card title="BaseCacheEngine (ABC)" icon="layer-group">
+    Top-level abstract class. Declares the five core methods every engine must implement: `get`, `set`, `delete`, `exists`, and `clear`.
+  </Card>
+  <Card title="LocalCacheEngine (ABC)" icon="server">
+    Extends `BaseCacheEngine`. Adds `size_regulator`, `normalize_timeout`, and `normalize_size` — helpers used by both local engine implementations.
+  </Card>
+</CardGroup>
+
+`InMemoryCacheEngine` and `ThreadCacheEngine` both extend `LocalCacheEngine` and provide concrete storage backends.
+
+## Default Values
+
+Both local engines share the same class-level defaults defined on `BaseCacheEngine`:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `DEFAULT_TIMEOUT` | `300.0` | Seconds a key lives before expiry |
+| `DEFAULT_SIZE` | `300` | Maximum number of entries in the cache |
+
+These values are applied automatically when `timeout` or `size` are omitted or `None` in a `set` call.
+
+## InMemoryCacheEngine
+
+`InMemoryCacheEngine` stores key-value pairs in a plain `dict` (`self.memory_cache`) that is owned by the engine instance. The dictionary is created in `__init__` and lives for the lifetime of that instance.
+
+<Note>
+  Because `InMemoryCacheEngine` keeps state on the **instance**, two separate `InMemoryCacheEngine()` objects do not share cached data. To share cache across multiple call sites in the same process, either pass a single instance around or wrap the class in a Singleton pattern.
+</Note>
+
+### Methods
+
+<AccordionGroup>
+  <Accordion title="get(key: str) -> object">
+    Returns the cached value if `key` exists and its TTL has not expired. If the key is missing or expired, `delete` is called and `None` is returned.
+  </Accordion>
+  <Accordion title="set(key: str, value: object, timeout: float = None, size: int = None) -> None">
+    Stores or updates `{key: value}`. Before writing, `size_regulator` is called to evict the oldest entries if the cache is over capacity. `timeout` defaults to `DEFAULT_TIMEOUT` (300 s) and `size` defaults to `DEFAULT_SIZE` (300) when `None` is passed.
+  </Accordion>
+  <Accordion title="exists(key: str) -> bool">
+    Returns `True` if `key` is present in the cache **and** its stored timeout is greater than the current epoch time. Returns `False` otherwise.
+  </Accordion>
+  <Accordion title="delete(key: str) -> None">
+    Removes `key` from the cache dictionary if it currently exists (checked via `exists`).
+  </Accordion>
+  <Accordion title="clear() -> None">
+    Replaces `self.memory_cache` with a fresh empty `dict`, wiping all entries.
+  </Accordion>
+</AccordionGroup>
+
+### Example
+
+```python
+from components.storage.dynamic.cache.local.engines import InMemoryCacheEngine
+
+cache = InMemoryCacheEngine()
+
+# Store with a 10-second TTL, max 100 entries
+cache.set('session:abc', {'user': 'alice'}, timeout=10, size=100)
+
+if cache.exists('session:abc'):
+    data = cache.get('session:abc')
+    print(data)  # {'user': 'alice'}
+
+cache.delete('session:abc')
+cache.clear()
+```
+
+## ThreadCacheEngine
+
+`ThreadCacheEngine` attaches the cache dictionary to `threading.currentThread()` as the attribute `thread_local_cache`. Every thread in the process gets its own isolated dictionary — keys written in one thread are invisible to all other threads. This makes `ThreadCacheEngine` a natural fit for per-request caching in multi-threaded web servers.
+
+<Tip>
+  Because the cache lives on the thread object, you can safely create a new `ThreadCacheEngine()` instance anywhere in the same thread and it will always read from the same underlying dictionary.
+</Tip>
+
+### Methods
+
+The API surface of `ThreadCacheEngine` is identical to `InMemoryCacheEngine`:
+
+<AccordionGroup>
+  <Accordion title="get(key: str) -> object">
+    Retrieves the value from the current thread's cache dictionary. Returns `None` (and calls `delete`) if the key is missing or expired.
+  </Accordion>
+  <Accordion title="set(key: str, value: object, timeout: float = None, size: int = None) -> None">
+    Writes `{key: value}` to the current thread's cache after running `size_regulator`.
+  </Accordion>
+  <Accordion title="exists(key: str) -> bool">
+    Returns `True` if the key is present in the current thread's cache and has not expired.
+  </Accordion>
+  <Accordion title="delete(key: str) -> None">
+    Removes the key from the current thread's cache if it exists.
+  </Accordion>
+  <Accordion title="clear() -> None">
+    Resets the current thread's `thread_local_cache` attribute to an empty `dict`.
+  </Accordion>
+</AccordionGroup>
+
+### Example
+
+```python
+from components.storage.dynamic.cache.local.engines import ThreadCacheEngine
+
+cache = ThreadCacheEngine()
+cache.set('request_id', '1234', timeout=30)
+print(cache.get('request_id'))  # '1234'
+```
+
+## Cache Decorators
+
+Kimera Core ships two function decorators that automatically store a function's return value in a local cache engine after every call.
+
+<Tabs>
+  <Tab title="@thread_local_cache">
+    Wraps a function and writes its return value into the current thread's `ThreadCacheEngine` under the given `key`.
+
+    ```python
+    @thread_local_cache(key, timeout=None, size=None)
+    def my_function(...):
+        ...
+    ```
+  </Tab>
+  <Tab title="@in_memory_local_cache">
+    Wraps a function and writes its return value into an `InMemoryCacheEngine` instance under the given `key`.
+
+    ```python
+    @in_memory_local_cache(key, timeout=None, size=None)
+    def my_function(...):
+        ...
+    ```
+  </Tab>
+</Tabs>
+
+### Decorator Example
+
+```python
+from components.storage.dynamic.cache.local.engines import thread_local_cache, ThreadCacheEngine
+
+@thread_local_cache('computed_value', timeout=60)
+def expensive_computation(x):
+    return x * 42
+
+result = expensive_computation(10)
+print(ThreadCacheEngine().get('computed_value'))  # 420
+```
+
+<Note>
+  `@in_memory_local_cache` creates a **new** `InMemoryCacheEngine()` instance each time the decorated function is called. The stored value is therefore only retrievable from that same transient instance unless you have made `InMemoryCacheEngine` a Singleton. For reliable cross-call retrieval, use `@thread_local_cache` instead, or inject a shared `InMemoryCacheEngine` singleton manually.
+</Note>
+
+## Size Regulation
+
+Before every `set` call, `size_regulator(size)` is invoked. If `len(cache) > size`, the engine calculates how many entries exceed the limit and removes that many by calling `dict.popitem()` in a loop. Because Python 3.7+ dictionaries maintain insertion order, `popitem()` removes the most recently inserted item — effectively evicting the newest entries when the cache overflows.
+
+<Warning>
+  `popitem()` removes from the **end** of insertion order in Python 3.7+. If you rely on LRU (least-recently-used) eviction semantics, consider using `collections.OrderedDict` or a dedicated LRU cache instead.
+</Warning>
+
+## TTL Normalization
+
+Raw seconds passed as `timeout` are converted to an **absolute epoch timestamp** by `normalize_timeout`:
+
+```python
+def normalize_timeout(self, timeout: float) -> float:
+    timeout = float(timeout) if timeout else self.DEFAULT_TIMEOUT
+    return time() + timeout
+```
+
+The stored value is `time() + timeout`. When a key is read, `result['timeout'] > time()` checks whether the stored absolute timestamp is still in the future. This design means no background thread is needed to expire keys — expiry is checked lazily on every `get` or `exists` call.

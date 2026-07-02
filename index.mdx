@@ -1,20 +1,68 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "Kimera Core: Python Utility Library"
+sidebarTitle: "Home"
+description: "Kimera Core is a Python utility library with ready-to-use components for caching, serialization, hashing, logging, and data extraction."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Kimera Core is a collection of battle-tested Python utility components designed to eliminate boilerplate in your projects. It provides consistent, well-tested abstractions for local and remote caching, flexible JSON and binary serialization, MD5 hashing, dynamic module imports, structured logging, and file extraction — all following clean, abstract base class patterns so you can extend or swap implementations as your needs evolve.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="book-open" href="/introduction">
+    Understand what Kimera Core provides and when to use each component.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install the package and write your first working cache and serializer in minutes.
+  </Card>
+  <Card title="Local Cache" icon="memory" href="/components/cache-local">
+    In-memory and thread-local caching engines with TTL and size control.
+  </Card>
+  <Card title="Remote Cache" icon="server" href="/components/cache-remote">
+    Redis and Memcached adapters with a uniform cache interface.
+  </Card>
+  <Card title="Serializers" icon="shuffle" href="/components/serializers">
+    Custom JSON serialization for datetime, date, list, tuple, dict, and more.
+  </Card>
+  <Card title="Utilities" icon="wrench" href="/utilities/hash">
+    Hash, import, exception, and logging utilities.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What's inside
+
+<Steps>
+  <Step title="Install kimera-core">
+    Install from PyPI using pip — requires Python 3.6 or later.
+  </Step>
+  <Step title="Pick a component">
+    Choose from caching engines, serializers, hash utilities, or logging handlers depending on your use case.
+  </Step>
+  <Step title="Integrate and extend">
+    Every component is built on abstract base classes — swap implementations or subclass to fit your architecture.
+  </Step>
+  <Step title="Run the tests">
+    A full unit-test suite (pytest / tox) ships with the library so you can verify correctness after any customization.
+  </Step>
+</Steps>
+
+## Key features
+
+<CardGroup cols={3}>
+  <Card title="Local Cache" icon="bolt">
+    `InMemoryCacheEngine` and `ThreadCacheEngine` with configurable TTL and max-size eviction.
+  </Card>
+  <Card title="Remote Cache" icon="database">
+    First-class `RedisEngine` and `MemcachedEngine` adapters behind a common interface.
+  </Card>
+  <Card title="KimeraSerializer" icon="arrows-rotate">
+    Recursive JSON serialization for complex Python objects including `datetime` and nested collections.
+  </Card>
+  <Card title="Pickle Wrapper" icon="box">
+    A thin, consistent `Pickle` wrapper for binary object serialization and deserialization.
+  </Card>
+  <Card title="MD5 Hashing" icon="fingerprint">
+    `build_hash()` generates a deterministic hash from any Python object regardless of type.
+  </Card>
+  <Card title="Import Utils" icon="puzzle-piece">
+    `ImportUtils` provides safe runtime module checks and dynamic attribute loading.
+  </Card>
+</CardGroup>

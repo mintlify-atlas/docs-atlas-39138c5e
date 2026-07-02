@@ -1,0 +1,92 @@
+---
+title: "Raw Extractor: Reading ZIP File Contents"
+sidebarTitle: "Extractor"
+description: "RawZipExtractor implements the Extractor ABC to open all files inside a ZIP archive and return a list of file descriptors ready for reading."
+---
+
+The extractor component provides a uniform interface for reading the contents of archive files and returning them as open file descriptor objects. The abstract base class `Extractor` defines a single `read(**kwargs)` contract that all implementations must satisfy; the concrete `RawZipExtractor` class fulfils this contract for ZIP archives, using Python's standard `zipfile.ZipFile` to open every file inside the archive and return a list of readable descriptors — one per archived file.
+
+## Extractor ABC
+
+`Extractor` is a simple abstract base class with a single abstract method:
+
+<ParamField path="read" type="method">
+  Subclasses must implement `read(**kwargs) -> object`. All arguments are passed as keyword arguments so that each implementation can declare exactly the parameters it needs without changing the call signature. The return type is implementation-defined — `RawZipExtractor` returns a `list` of file descriptor objects.
+</ParamField>
+
+```python
+from abc import ABC, abstractmethod
+
+class Extractor(ABC):
+    @abstractmethod
+    def read(self, **kwargs) -> object:
+        """ Extractor method """
+```
+
+## RawZipExtractor
+
+`RawZipExtractor` reads a ZIP archive and returns a list of open file descriptor objects — one for each file contained in the archive. Each descriptor is produced by `ZipFile.open(name)` and supports standard read operations.
+
+### Required Keyword Arguments
+
+<ParamField body="filename" type="str" required>
+  Path to the ZIP archive file. This key is validated by `ExceptionsUtils.raise_exception_if_key_not_in_dict` before the archive is opened. Omitting it raises a plain `Exception`.
+</ParamField>
+
+### Example
+
+```python
+from components.extractor.raw import RawZipExtractor
+
+extractor = RawZipExtractor()
+file_descriptors = extractor.read(filename='archive.zip')
+
+for fd in file_descriptors:
+    content = fd.read()
+    print(content)
+```
+
+### Return Value
+
+<ResponseField name="file_descriptors" type="list">
+  A list of open file-like objects corresponding to every file listed in `ZipFile.namelist()`. Each element supports `.read()` to retrieve the file's raw bytes. The list order matches the order files appear in the ZIP's central directory.
+</ResponseField>
+
+<Note>
+  The `filename` kwarg is validated by `ExceptionsUtils.raise_exception_if_key_not_in_dict('filename', kwargs)` before `ZipFile` is constructed. If `filename` is not provided, a plain `Exception` is raised immediately, before any filesystem access occurs.
+</Note>
+
+### How It Works Internally
+
+The `_file_descriptors` static method opens the archive using `ZipFile(**kwargs)` inside a `with` block, then builds the descriptor list with a list comprehension over `z.namelist()`:
+
+```python
+@staticmethod
+def _file_descriptors(**kwargs) -> list:
+    from zipfile import ZipFile
+    with ZipFile(**kwargs) as z:
+        return [z.open(file) for file in z.namelist()]
+```
+
+<Warning>
+  The `ZipFile` context manager closes the archive after the `with` block exits. The returned file descriptors are opened from a closed archive, which means subsequent reads may raise an error depending on the Python version and OS. Read each descriptor's contents within the same synchronous scope as the `read` call, or copy the bytes immediately after extraction.
+</Warning>
+
+## Extending Extractor
+
+Implement `Extractor` to add support for other file formats or data sources. The only requirement is a `read(**kwargs)` method that returns some object — the type and shape are up to you.
+
+```python
+from components.extractor.raw import Extractor
+
+class CsvExtractor(Extractor):
+    def read(self, **kwargs) -> list:
+        import csv
+        with open(kwargs['filename'], newline='') as f:
+            reader = csv.DictReader(f)
+            return list(reader)
+```
+
+<Tip>
+  Follow the same validation pattern used in `RawZipExtractor` — call `ExceptionsUtils.raise_exception_if_key_not_in_dict` at the top of your `read` implementation to surface missing required kwargs early and with a clear error message.
+</Tip>

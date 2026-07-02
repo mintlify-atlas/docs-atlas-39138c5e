@@ -1,0 +1,142 @@
+---
+title: "Remote Cache Engines: Redis and Memcached"
+sidebarTitle: "Remote Cache"
+description: "Kimera Core provides RedisEngine and MemcachedEngine remote cache adapters behind the same BaseCacheEngine interface used by local cache engines."
+---
+
+Remote caches operate outside the Python process, allowing multiple application instances to share a single cache store and persist entries beyond a process restart. Kimera Core provides two remote adapters — `RedisEngine` for Redis and `MemcachedEngine` for Memcached — both implementing the same `BaseCacheEngine` abstract interface as the local engines. Use Redis when you need optional TTL configuration, key inspection, or pub/sub alongside caching; use Memcached when you want a simpler, high-throughput store with minimal overhead and are comfortable with its fire-and-forget semantics.
+
+## Prerequisites
+
+Neither adapter ships with a hard dependency. The required client library is imported lazily at instantiation time; if the package is missing, `ImportUtils.raise_exception_if_module_not_exists` raises a `ModuleNotFoundError` before any network connection is attempted.
+
+<CardGroup cols={2}>
+  <Card title="Redis" icon="database">
+    Install the client and start a Redis server:
+
+    ```bash
+    pip install redis
+    ```
+
+    Default connection: `localhost:6379`
+  </Card>
+  <Card title="Memcached" icon="database">
+    Install the client and start a Memcached server:
+
+    ```bash
+    pip install pymemcache
+    ```
+
+    Default connection: `localhost:11211`
+  </Card>
+</CardGroup>
+
+<Note>
+  If the optional package is not installed, instantiation raises `ModuleNotFoundError` immediately rather than at the first cache operation, making the missing dependency obvious at startup.
+</Note>
+
+## RedisEngine
+
+`RedisEngine` connects to Redis using `redis.Redis()` with its default settings, which resolve to `localhost` on port `6379`. The underlying client is stored as `self._redis` and is reused for the lifetime of the engine instance.
+
+### Methods
+
+<AccordionGroup>
+  <Accordion title="get(key: str) -> object">
+    Calls `redis.get(key)`. Returns the stored bytes value, or `None` if the key does not exist. Note that Redis always returns values as `bytes` — decode as needed.
+  </Accordion>
+  <Accordion title="set(key: str, value: object, timeout: float = None, size: int = None) -> None">
+    Calls `redis.set(key, value, timeout)`. The `timeout` value is passed directly to the Redis driver as the `ex` (expiry in seconds) argument. The `size` parameter is accepted for interface compatibility but is not used.
+  </Accordion>
+  <Accordion title="exists(key: str) -> bool">
+    Calls `self.get(key)` and returns `True` if the result is not `None`.
+  </Accordion>
+  <Accordion title="delete(key: str) -> None">
+    Calls `redis.delete(key)` to remove the key from the Redis store.
+  </Accordion>
+  <Accordion title="clear() -> None">
+    Calls `redis.flushall()`, which removes **all keys from all databases** on the connected Redis server. Use with care in shared environments.
+  </Accordion>
+  <Accordion title="close() -> None">
+    Closes the underlying Redis connection. Call this when the engine is no longer needed to release the connection back to the pool.
+  </Accordion>
+</AccordionGroup>
+
+### Example
+
+```python
+from components.storage.dynamic.cache.remote.engines import RedisEngine
+
+cache = RedisEngine()  # requires redis package and a running Redis server
+cache.set('token:xyz', 'bearer_abc123', timeout=300)
+print(cache.exists('token:xyz'))  # True
+print(cache.get('token:xyz'))     # b'bearer_abc123' (Redis returns bytes)
+cache.delete('token:xyz')
+cache.close()
+```
+
+<Note>
+  Redis serializes all values to bytes. If you store a Python string such as `'bearer_abc123'`, `get` returns `b'bearer_abc123'`. Decode the result with `.decode('utf-8')` or use `KimeraSerializer` to round-trip complex objects through Redis.
+</Note>
+
+## MemcachedEngine
+
+`MemcachedEngine` connects to Memcached using `pymemcache.client.base.Client` pointed at `('localhost', 11211)`. The client is stored as `self._client`.
+
+### Methods
+
+<AccordionGroup>
+  <Accordion title="get(key: str) -> object">
+    Calls `client.get(key)`. Returns the cached value, or `None` if the key does not exist or has expired.
+  </Accordion>
+  <Accordion title="set(key: str, value: object, timeout: float = None, size: int = None) -> None">
+    Calls `client.set(key, value)`. The `timeout` and `size` parameters are accepted for interface compatibility; TTL configuration is not yet wired through to the underlying Memcached `expire` argument.
+  </Accordion>
+  <Accordion title="exists(key: str) -> bool">
+    Calls `self.get(key)` and returns `True` if the result is not `None`.
+  </Accordion>
+  <Accordion title="delete(key: str) -> None">
+    Calls `client.delete(key)` to remove the key from Memcached.
+  </Accordion>
+  <Accordion title="clear() -> None">
+    Calls `client.flush_all()`, invalidating all entries in the connected Memcached instance.
+  </Accordion>
+  <Accordion title="close() -> None">
+    Closes the underlying Memcached connection.
+  </Accordion>
+</AccordionGroup>
+
+### Example
+
+```python
+from components.storage.dynamic.cache.remote.engines import MemcachedEngine
+
+cache = MemcachedEngine()  # requires pymemcache package + running Memcached
+cache.set('rate_limit:user42', 99)
+print(cache.exists('rate_limit:user42'))  # True
+cache.clear()
+cache.close()
+```
+
+## Shared Interface
+
+Both `RedisEngine` and `MemcachedEngine` implement the same `BaseCacheEngine` ABC that the local engines descend from. This means they are drop-in replacements for `InMemoryCacheEngine` or `ThreadCacheEngine` in any code that depends on the abstract interface:
+
+```python
+from components.storage.dynamic.cache.remote.engines import RedisEngine
+from components.storage.dynamic.cache.local.engines import InMemoryCacheEngine
+
+def store_result(engine, key: str, value: object) -> None:
+    """Works with any BaseCacheEngine implementation."""
+    engine.set(key, value, timeout=60)
+
+# Switch between local and remote with no other code changes
+store_result(InMemoryCacheEngine(), 'job:1', {'status': 'done'})
+store_result(RedisEngine(),         'job:1', {'status': 'done'})
+```
+
+The shared contract covers `get`, `set`, `delete`, `exists`, and `clear`. The `close` method is additional on remote engines and has no equivalent on local engines.
+
+<Warning>
+  The remote engines do **not** yet support `size` regulation or normalized TTL conversion like the local engines. The `timeout` value is passed directly to the backend driver (Redis `set(..., ex=timeout)` or Memcached, which currently ignores it). Do not rely on size-based eviction or TTL when using remote adapters until these features are implemented.
+</Warning>

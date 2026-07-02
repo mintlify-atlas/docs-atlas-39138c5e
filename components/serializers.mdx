@@ -1,0 +1,152 @@
+---
+title: "Serializers: JSON and Pickle Object Encoding"
+sidebarTitle: "Serializers"
+description: "Kimera Core provides KimeraSerializer for JSON-based encoding of complex Python types and a Pickle wrapper for binary object serialization."
+---
+
+Python's standard `json.dumps` rejects many common types — `datetime`, `date`, `tuple`, and nested combinations of these will raise a `TypeError` at runtime. `KimeraSerializer` solves this by routing each object through a prioritized chain of handler classes, each responsible for encoding and decoding one specific Python type into a JSON-safe envelope. The result is a fully round-trippable JSON string that can be stored in a cache, sent over a network, or written to a file and reconstructed back to the original Python object without any manual type hints.
+
+## KimeraSerializer
+
+`KimeraSerializer` is a composed class that holds an ordered list of `BaseSerializerHandler` instances. When you call `serialize`, it finds the first handler whose `can_i_handle_object_to_serialize` returns `True` and delegates to that handler's `build_serializer`. Deserialization follows the same pattern in reverse.
+
+### Supported Types
+
+<CardGroup cols={3}>
+  <Card title="Primitives" icon="brackets-curly">
+    `str`, `int`, `float`, and `bool` are handled by `DefaultSerializerHandler`.
+  </Card>
+  <Card title="Collections" icon="list">
+    `list` and `tuple` are handled element-by-element, preserving nesting.
+  </Card>
+  <Card title="Mappings" icon="table">
+    `dict` is handled key-by-key, with each value serialized recursively.
+  </Card>
+  <Card title="Date" icon="calendar">
+    `datetime.date` is serialized using the format `%Y%m%d`.
+  </Card>
+  <Card title="Datetime" icon="clock">
+    `datetime.datetime` is serialized using `%Y%m%d %H:%M:%S.%f`.
+  </Card>
+  <Card title="Nested" icon="diagram-project">
+    Any combination of the above types nested arbitrarily deep.
+  </Card>
+</CardGroup>
+
+### Methods
+
+<AccordionGroup>
+  <Accordion title="serialize(object) -> str">
+    Selects the appropriate handler for the object and returns a JSON string envelope containing `{'data': ..., 'serializer': '<HandlerClassName>'}`.
+  </Accordion>
+  <Accordion title="deserialize(str) -> object">
+    Reads the `serializer` field from the JSON envelope to identify the correct handler and reconstructs the original Python object.
+  </Accordion>
+</AccordionGroup>
+
+### Full Round-Trip Example
+
+```python
+from components.tools.serializers.custom import KimeraSerializer
+from datetime import datetime, date
+
+s = KimeraSerializer()
+
+# Complex nested object
+obj = {
+    'created': datetime(2024, 1, 15, 12, 0, 0),
+    'birthday': date(1990, 6, 20),
+    'scores': [95, 87, (100, 99)],
+    'meta': {'active': True, 'tags': ['a', 'b']}
+}
+
+serialized = s.serialize(obj)
+restored = s.deserialize(serialized)
+assert restored == obj
+print(restored['created'])  # datetime(2024, 1, 15, 12, 0, 0)
+```
+
+<Note>
+  Custom user-defined class instances that are not in the handler list will fall through to `DefaultSerializerHandler`, which passes the object to the standard `json.JSONEncoder`. If the encoder cannot handle the type, a `TypeError` is raised. Extend `BaseSerializerHandler` and add your handler to a custom `KimeraSerializer` subclass to support additional types.
+</Note>
+
+## Handler Chain
+
+`KimeraSerializer.__init__` builds the following ordered list. The **first** handler whose `can_i_handle_object_to_serialize(obj)` returns `True` is used:
+
+<Steps>
+  <Step title="DateSerializerHandler">
+    Matches `datetime.date` objects where `type(obj) == date` exactly (not `datetime` subclass). Encodes using `%Y%m%d`; decodes back to `date`.
+  </Step>
+  <Step title="DateTimeSerializerHandler">
+    Matches `datetime.datetime` instances (`isinstance(obj, datetime)`). Encodes using `%Y%m%d %H:%M:%S.%f`; decodes back to `datetime`.
+  </Step>
+  <Step title="DictSerializerHandler">
+    Matches any `dict`. Each value is recursively serialized by calling `KimeraSerializer().serialize(value)`.
+  </Step>
+  <Step title="TupleSerializerHandler">
+    Matches any `tuple`. Each element is recursively serialized; deserialization reconstructs a `tuple`.
+  </Step>
+  <Step title="ListSerializerHandler">
+    Matches any `list`. Each element is recursively serialized; deserialization reconstructs a `list`.
+  </Step>
+  <Step title="DefaultSerializerHandler">
+    Catch-all — `can_i_handle_object_to_serialize` always returns `True`. Delegates to `KimeraEncoder` / `KimeraDecoder` for final JSON encoding.
+  </Step>
+</Steps>
+
+<Tip>
+  `DateSerializerHandler` must appear **before** `DateTimeSerializerHandler` in the chain because `datetime` is a subclass of `date`. Reversing the order would cause all `date` objects to be incorrectly matched by the `datetime` handler.
+</Tip>
+
+## KimeraEncoder / KimeraDecoder
+
+`KimeraEncoder` and `KimeraDecoder` are `json.JSONEncoder` / `json.JSONDecoder` subclasses that integrate directly with Python's standard `json` module. Use them when you already have code using `json.dumps` / `json.loads` and want Kimera's type support with minimal refactoring.
+
+### How They Work
+
+- **`KimeraEncoder.default(_object)`** — called by `json.dumps` for any object it cannot natively serialize. It delegates to `KimeraSerializer` if a non-default handler can process the object; otherwise it falls back to `super().default()`.
+- **`KimeraDecoder.object_hook(_object)`** — called by `json.loads` for every decoded JSON object (`dict`). If the dict looks like a Kimera envelope (`{'serializer': ..., 'data': ...}`), it reconstructs the original Python type via `KimeraSerializer().deserialize`.
+
+### Example
+
+```python
+import json
+from components.tools.serializers.custom import KimeraEncoder, KimeraDecoder
+from datetime import datetime
+
+data = {'ts': datetime.now()}
+encoded = json.dumps(data, cls=KimeraEncoder)
+decoded = json.loads(encoded, cls=KimeraDecoder)
+```
+
+## Pickle Serializer
+
+The `Pickle` class is a thin, stateless wrapper around Python's built-in `pickle` module that provides a consistent method-naming convention matching the rest of Kimera's serializer API.
+
+### Methods
+
+<AccordionGroup>
+  <Accordion title="Pickle.serializer(object) -> bytes">
+    Calls `pickle.dumps(_object)` and returns the binary byte string representation of the Python object.
+  </Accordion>
+  <Accordion title="Pickle.deserializer(bytes) -> object">
+    Calls `pickle.loads(serializer_object)` and reconstructs the original Python object from its binary representation.
+  </Accordion>
+</AccordionGroup>
+
+### Example
+
+```python
+from components.tools.serializers._pickle import Pickle
+from datetime import datetime
+
+obj = {'ts': datetime.now(), 'values': [1, 2, 3]}
+binary = Pickle.serializer(obj)
+restored = Pickle.deserializer(binary)
+assert restored == obj
+```
+
+<Warning>
+  **Never** deserialize Pickle data received from an untrusted source. The `pickle` format can execute arbitrary code during deserialization, making it a serious security risk for data that crosses network or trust boundaries. Use `KimeraSerializer` (JSON-based) for any data exchanged between services or stored externally.
+</Warning>

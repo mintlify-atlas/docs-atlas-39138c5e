@@ -1,0 +1,242 @@
+---
+title: "Design Patterns Used in Kimera Core Python Library"
+sidebarTitle: "Design Patterns"
+description: "Kimera Core uses the Singleton, Strategy, Template Method, and Decorator patterns. Learn how each applies and how to extend them in your own Python code."
+---
+
+Design patterns are reusable solutions to problems that recur again and again in software design. Introduced formally by the *Gang of Four* (GoF) in their landmark 1994 book, each pattern has four essential elements: a **name**, a description of the **problem** it solves, the **solution** structure, and the **consequences** of applying it. Kimera Core draws on four patterns — Singleton, Strategy, Template Method, and Decorator — to keep its cache and serialization subsystems modular, testable, and easy to extend. This page explains what each pattern is, where it appears in the library, and how to apply it in your own code.
+
+## Creational Patterns
+
+Creational patterns deal with how objects are instantiated. They isolate client code from the details of construction so that the same interface works regardless of which concrete class is created.
+
+### Singleton
+
+> *Guarantee that a class has only one instance and provide a global access point to it.*
+
+The Singleton pattern is particularly important for `InMemoryCacheEngine`. Because in-memory caches are backed by a plain Python `dict` attached to the instance, every call to `InMemoryCacheEngine()` that creates a **new** object also creates a **new**, empty cache — defeating the purpose of caching entirely. Wrapping the class with a Singleton implementation ensures that all callers share the same dict.
+
+<Note>
+  The `engines.py` source file includes a comment: `# TODO: para que funcione la clase InMemoryCacheEngine debe ser Singleton`. The four implementations below are drop-in solutions for that requirement.
+</Note>
+
+Python offers several ways to implement the Singleton pattern. Each has different trade-offs around inheritance, metaclass interference, and decorator ergonomics.
+
+<Accordion title="1. Decorator by Function">
+  A plain function wraps the class and maintains a private `instances` dict. When the decorated class is "instantiated", the wrapper checks the dict first.
+
+  ```python
+  def singleton(cls):
+      instances = {}
+
+      def get_instance(*args, **kwargs):
+          if cls not in instances:
+              instances[cls] = cls(*args, **kwargs)
+          return instances[cls]
+
+      return get_instance
+
+
+  @singleton
+  class InMemoryCacheEngine(LocalCacheEngine):
+      ...
+  ```
+
+  **Pros**
+  - Decorators compose naturally; easy to add or remove without touching the class body.
+  - Minimal boilerplate.
+
+  **Cons**
+  - `InMemoryCacheEngine` is now a **function**, not a class — `isinstance()` checks and class-method calls on the name itself will not work.
+  - `type(n)()` bypasses the singleton guard and creates a new instance.
+</Accordion>
+
+<Accordion title="2. Base Class (by Inheritance)">
+  A `Singleton` base class overrides `__call__` via its metaclass so that every subclass automatically enforces single-instance semantics.
+
+  ```python
+  class Singleton(type):
+      _instances = {}
+
+      def __call__(cls, *args, **kwargs):
+          if cls not in cls._instances:
+              cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+          return cls._instances[cls]
+
+
+  class BaseClass:
+      pass
+
+
+  class MyClass(BaseClass, metaclass=Singleton):
+      pass
+  ```
+
+  **Pros**
+  - `MyClass` remains a true class; `isinstance()` and `issubclass()` work correctly.
+
+  **Cons**
+  - Multiple inheritance requires extra care — if another base class also defines `__new__` or uses a metaclass, conflicts can arise and must be resolved explicitly.
+</Accordion>
+
+<Accordion title="3. Metaclass">
+  The metaclass approach is the most Pythonic: `__metaclass__` is exactly the right hook for controlling class instantiation, and it automatically handles inheritance.
+
+  ```python
+  class Singleton(type):
+      _instances = {}
+
+      def __call__(cls, *args, **kwargs):
+          if cls not in cls._instances:
+              cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+          else:
+              cls._instances[cls].__init__(*args, **kwargs)
+
+
+  class BaseClass:
+      pass
+
+
+  # Python 3
+  class MyClass(BaseClass, metaclass=Singleton):
+      pass
+  ```
+
+  **Pros**
+  - True class; all reflection and introspection work normally.
+  - Inheritance is handled automatically — subclasses of `MyClass` also become singletons.
+  - Uses `__metaclass__` for its intended purpose.
+
+  **Cons**
+  - Slightly unfamiliar to developers who have not worked with metaclasses before.
+</Accordion>
+
+<Accordion title="4. Decorator Returning a Class">
+  A decorator wraps the target class in a new class that carries the singleton logic, then renames the wrapper to match the original.
+
+  ```python
+  def singleton(cls):
+      class class_w(cls):
+          _instance = None
+
+          def __new__(cls, *args, **kwargs):
+              if class_w._instance is None:
+                  class_w._instance = super(class_w, cls).__new__(
+                      cls, *args, **kwargs
+                  )
+                  class_w._instance._sealed = False
+              return class_w._instance
+
+          def __init__(self, *args, **kwargs):
+              if self._sealed:
+                  return
+              super(class_w, self).__init__(*args, **kwargs)
+              self._sealed = True
+
+      class_w.__name__ = cls.__name__
+      return class_w
+
+
+  class BaseClass:
+      pass
+
+
+  @singleton
+  class MyClass(BaseClass):
+      pass
+  ```
+
+  **Pros**
+  - The returned object is still a class, so `isinstance()` works.
+  - Enforces single initialization via the `_sealed` flag.
+
+  **Cons**
+  - More complex than the function-decorator approach; the wrapper class adds an extra layer of indirection that can confuse debuggers and profilers.
+</Accordion>
+
+---
+
+## Structural and Behavioral Patterns in Kimera Core
+
+### Strategy — Swappable Cache Engines
+
+The **Strategy** pattern defines a family of algorithms, encapsulates each one, and makes them interchangeable. Client code programs against an abstract interface and selects a concrete strategy at runtime.
+
+In Kimera Core, `BaseCacheEngine` is the strategy interface. `InMemoryCacheEngine` and `ThreadCacheEngine` (and `RemoteCacheEngine` for distributed scenarios) are concrete strategies. Swapping the engine requires changing only one constructor call — no other code changes.
+
+```python
+from components.storage.dynamic.cache.local.engines import (
+    InMemoryCacheEngine,
+    ThreadCacheEngine,
+)
+
+# Both engines satisfy the BaseCacheEngine interface
+def warm_cache(engine, key: str, value: object) -> None:
+    engine.set(key, value, timeout=120)
+
+warm_cache(InMemoryCacheEngine(), "user:42", {"name": "Alice"})
+warm_cache(ThreadCacheEngine(),   "user:42", {"name": "Alice"})
+```
+
+<Tip>
+  Use `InMemoryCacheEngine` for process-wide shared caches and `ThreadCacheEngine` when each thread must see its own isolated cache — for example, in a multi-threaded web server where per-request state should never leak between requests.
+</Tip>
+
+### Template Method — LocalCacheEngine Subclassing
+
+The **Template Method** pattern defines the skeleton of an algorithm in a base class and defers the steps that vary to subclasses. The base class calls abstract methods that each subclass fills in.
+
+`LocalCacheEngine` plays this role in Kimera Core. It provides the concrete helper methods `normalize_timeout` and `normalize_size` that all engines rely on, while declaring `size_regulator` as abstract. Concrete engines (`InMemoryCacheEngine`, `ThreadCacheEngine`) implement `size_regulator` and all five CRUD methods to complete the algorithm.
+
+```python
+from abc import abstractmethod
+from components.storage.dynamic.cache.local.engines import LocalCacheEngine
+
+class InMemoryCacheEngine(LocalCacheEngine):
+
+    def set(self, key, value, timeout=None, size=None):
+        # normalize_timeout and normalize_size come from LocalCacheEngine
+        self.size_regulator(self.normalize_size(size))
+        self.memory_cache[key] = {
+            "timeout": self.normalize_timeout(timeout),
+            "value": value,
+        }
+
+    def size_regulator(self, size):
+        if len(self.memory_cache) > size:
+            count = len(self.memory_cache) - size
+            list(map(lambda _: self.memory_cache.popitem(), range(count)))
+```
+
+### Decorator — Transparent Caching for Any Function
+
+The **Decorator** pattern attaches additional responsibilities to an object dynamically, without modifying the object's interface. In Python this maps directly onto function decorators.
+
+`@thread_local_cache` and `@in_memory_local_cache` wrap any function so that its return value is automatically stored in the chosen cache engine after each call. The wrapped function's signature and return value are completely unchanged from the caller's perspective.
+
+```python
+from components.storage.dynamic.cache.local.engines import (
+    thread_local_cache,
+    in_memory_local_cache,
+    ThreadCacheEngine,
+)
+
+@thread_local_cache(key="exchange_rate", timeout=300)
+def fetch_exchange_rate(currency: str) -> float:
+    # Expensive I/O — result is cached in the current thread for 5 minutes
+    ...
+
+# Later, read from the cache directly if needed
+rate = ThreadCacheEngine().get("exchange_rate")
+```
+
+---
+
+## Pattern Classification Table
+
+| Pattern | Category | Where Used in Kimera Core |
+|---|---|---|
+| Singleton | Creational | Recommended for `InMemoryCacheEngine` shared instances |
+| Strategy | Structural | Cache engine selection (`BaseCacheEngine` implementations) |
+| Template Method | Behavioral | `LocalCacheEngine` subclassing (`size_regulator`, CRUD methods) |
+| Decorator | Structural | `@thread_local_cache`, `@in_memory_local_cache` |

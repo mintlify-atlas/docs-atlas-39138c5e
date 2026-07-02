@@ -1,47 +1,76 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get started with Kimera Core in minutes"
+sidebarTitle: "Quickstart"
+description: "Install kimera-core from PyPI and write your first in-memory cache, serializer, and hash in under five minutes with working Python examples."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+By the end of this guide you will have kimera-core installed, a working in-memory cache storing and retrieving a Python dictionary with TTL expiry, a `KimeraSerializer` round-tripping a complex object that contains a `datetime` and a tuple, and a deterministic MD5 hash key generated from a plain dict — all with real, runnable code drawn directly from the library's source.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+  <Step title="Install kimera-core">
+    Install the package from PyPI using pip. No extra flags or indexes are required for the core feature set.
 
     ```bash
-    npm install your-package
+    pip install kimera-core
     ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
-    ```
+    After installation completes, you can verify it by opening a Python shell and importing one of the engines — see the [Verify Installation](/installation#verify-installation) section for a one-liner check.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
+  <Step title="Use the in-memory cache">
+    `InMemoryCacheEngine` stores key-value pairs in a plain Python `dict` inside your process. Every entry carries a TTL (time-to-live) in seconds; once the TTL elapses, `get` and `exists` treat the entry as absent. The engine also enforces a maximum number of entries via `size_regulator`, evicting the oldest item when the limit is breached.
+
+    ```python
+    from components.storage.dynamic.cache.local.engines import InMemoryCacheEngine
+
+    cache = InMemoryCacheEngine()
+    cache.set('user:1', {'name': 'Alice'}, timeout=60)
+    print(cache.exists('user:1'))   # True
+    print(cache.get('user:1'))      # {'name': 'Alice'}
+    cache.delete('user:1')
+    print(cache.exists('user:1'))   # False
     ```
+
+    The `timeout` parameter is expressed in seconds and defaults to `300.0` when omitted. The `size` parameter defaults to `300` entries. Both defaults are defined as class-level constants on `BaseCacheEngine`.
   </Step>
+
+  <Step title="Serialize a Python object">
+    `KimeraSerializer` performs round-trip JSON serialization for Python types that the standard `json` module cannot handle natively, including `datetime`, `date`, `tuple`, and nested combinations. It selects the correct handler automatically by inspecting the object's type.
+
+    ```python
+    from components.tools.serializers.custom import KimeraSerializer
+    from datetime import datetime
+
+    serializer = KimeraSerializer()
+    obj = {'timestamp': datetime.now(), 'values': [1, 2, (3, 4)]}
+    serialized = serializer.serialize(obj)
+    restored = serializer.deserialize(serialized)
+    assert restored == obj
+    ```
+
+    The `serialize` method returns a JSON string. The `deserialize` method reconstructs the original Python object, including the correct types — the `datetime` comes back as a `datetime` instance, and the tuple comes back as a `tuple`.
+  </Step>
+
+  <Step title="Hash an object">
+    `build_hash` creates a deterministic MD5 hex digest from any Python object by encoding both its string representation and its type. The same object always produces the same hash, making it safe to use as a cache key.
+
+    ```python
+    from components.tools.hash.md5 import build_hash
+
+    key = build_hash({'user_id': 42, 'role': 'admin'})
+    print(key)   # deterministic MD5 hex string
+    ```
+
+    The hash is computed as `hashlib.md5(str(obj).encode() + str(type(obj)).encode()).hexdigest()`. Because the type is included in the digest, a string `"1"` and an integer `1` produce different hashes even though their string representations are identical.
+  </Step>
+
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+<Note>
+  The import paths above — such as `components.storage.dynamic.cache.local.engines` — assume you are running Python from **within the kimera-core package directory** (i.e., the directory that contains the `components/` folder). If you have installed the package into a virtualenv via pip and the package registers its own top-level namespace, adjust the import path to match your environment.
+</Note>
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+<Tip>
+  The `set` method on `InMemoryCacheEngine` also accepts a `size` parameter that caps the total number of entries. When the cache exceeds this limit the oldest item is evicted automatically. See the [Local Cache](/components/cache-local) reference for a full breakdown of TTL behaviour, size regulation, and the `ThreadCacheEngine` alternative.
 </Tip>

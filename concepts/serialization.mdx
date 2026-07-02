@@ -1,0 +1,111 @@
+---
+title: "What Is Serialization? A Complete Developer's Guide"
+sidebarTitle: "Serialization"
+description: "Serialization converts in-memory Python objects to byte streams or strings for storage, transport, or caching. Learn the concepts behind KimeraSerializer."
+---
+
+Serialization is the process of converting a live, in-memory Python object into a portable representation — a byte stream or a string — that can be written to disk, stored in a database, or sent across a network. The reverse operation, reconstructing the original object from that representation, is called **deserialization** (or **unmarshalling**). Together, these two operations are the backbone of persistence and inter-process communication in virtually every modern application.
+
+## Why Serialization Matters
+
+Serialization is more than a convenience for network programming. Many everyday operations depend on it, and most major languages — C, C++, Java, C#, Python, and Perl among them — ship standard-library support for it precisely because the use cases are so pervasive.
+
+<CardGroup cols={2}>
+  <Card title="Storage and Databases" icon="database">
+    Serialized objects can be written to any storage medium — a local disk, a relational database BLOB column, or an object store — and later reloaded exactly as they were.
+  </Card>
+  <Card title="Network Transport" icon="network-wired">
+    Converting an object to bytes makes it possible to transmit application state over TCP/IP, HTTP, or message queues to a completely different host.
+  </Card>
+  <Card title="Remote Procedure Calls" icon="arrow-right-arrow-left">
+    RPC frameworks rely on serialization to pack arguments into a wire format, ship them to a remote process, and unpack the return value on the caller's side.
+  </Card>
+  <Card title="Crash Recovery" icon="shield-check">
+    A running program can periodically serialize its state to disk. If it crashes, it reloads from the most recent snapshot instead of starting from zero.
+  </Card>
+  <Card title="Object Interchange" icon="shuffle">
+    Serialized data can be consumed by independent programs written in different languages, as long as both sides agree on the format.
+  </Card>
+  <Card title="Change Detection" icon="magnifying-glass">
+    Comparing serialized snapshots taken at different points in time makes it straightforward to detect which fields of an object changed during execution.
+  </Card>
+</CardGroup>
+
+<Note>
+  One of serialization's most powerful properties is **architecture independence**: a well-chosen format lets objects serialized on a 64-bit ARM server be deserialized on an x86 laptop — or even in a browser — without any special handling.
+</Note>
+
+## Serialization in Kimera Core
+
+Kimera Core ships two serializer implementations, each optimized for a different class of use case.
+
+<Tabs>
+  <Tab title="KimeraSerializer (JSON)">
+    `KimeraSerializer` is a JSON-based serializer that handles Python's built-in types — `str`, `int`, `float`, `list`, `tuple`, `dict`, `datetime`, and `date` — through a chain of specialized handler classes (`DateSerializerHandler`, `ListSerializerHandler`, `DictSerializerHandler`, and so on). Each handler knows how to both serialize and deserialize exactly one type family, and `KimeraSerializer` selects the right one automatically.
+
+    ```python
+    from components.tools.serializers.custom import KimeraSerializer
+    from datetime import datetime
+
+    serializer = KimeraSerializer()
+
+    # Serialize a datetime object to a JSON string
+    payload = serializer.serialize(datetime(2024, 6, 1, 12, 0, 0))
+    print(payload)
+    # '{"data": "20240601 12:00:00.000000", "serializer": "DateTimeSerializerHandler"}'
+
+    # Reconstruct the original datetime
+    original = serializer.deserialize(payload)
+    print(original)  # datetime(2024, 6, 1, 12, 0, 0)
+    ```
+
+    **Best for:**
+    - Sending objects over HTTP APIs or message queues
+    - Storing structured data in a relational or document database
+    - Cross-language or cross-service data exchange (the output is plain JSON)
+    - Any situation where a human-readable or inspectable wire format matters
+  </Tab>
+  <Tab title="Pickle (Binary)">
+    The `Pickle` wrapper around Python's `pickle` module produces a compact binary byte string that can represent virtually any Python object, including custom classes, lambdas, and module references.
+
+    ```python
+    from components.tools.serializers._pickle import Pickle
+    from datetime import datetime
+
+    # Serialize to bytes
+    raw = Pickle.serializer({"ts": datetime.now(), "value": 42})
+    print(type(raw))  # <class 'bytes'>
+
+    # Deserialize back to the original dict
+    obj = Pickle.deserializer(raw)
+    print(obj)
+    ```
+
+    **Best for:**
+    - In-process caching where speed matters more than portability
+    - Saving and restoring internal state snapshots within a single Python process
+    - Python-only pipelines where cross-language compatibility is not required
+  </Tab>
+</Tabs>
+
+<Warning>
+  **Never unpickle data from an untrusted source.** Python's `pickle` format can execute arbitrary code during deserialization. If an object was serialized by external or user-supplied code, use `KimeraSerializer` (JSON) instead — it is safe to deserialize from untrusted input.
+</Warning>
+
+## Marshalling vs Serialization
+
+The two terms are frequently used interchangeably in Python, but they carry different meanings in other ecosystems.
+
+<Accordion title="The distinction explained">
+  In **Java**, *marshalling* means storing an object's state **and** its class code together, so the receiving side can reconstruct the object even without having the class definition locally. *Serialization* in Java only captures object state — the class must already be available on the other end.
+
+  In **Python**, the distinction does not exist at the language level. `pickle`, `json`, `marshal`, and third-party libraries all follow roughly the same model: capture state, transmit or store it, reconstruct on the other side. The word *marshalling* in Python documentation typically refers to converting arguments for C extension calls, not to any broader concept of bundling code with data.
+
+  For practical purposes in a Kimera Core project, treat the terms as synonyms unless you are integrating with a Java or .NET system that uses Java's stricter definition.
+</Accordion>
+
+---
+
+<Card title="Serializers Reference" href="/components/serializers" icon="shuffle">
+  Full API reference for `KimeraSerializer`, `Pickle`, and all `BaseSerializerHandler` subclasses — including handler registration, custom type support, and usage examples.
+</Card>

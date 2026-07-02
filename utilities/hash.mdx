@@ -1,0 +1,66 @@
+---
+title: "MD5 Hash Utility: Deterministic Object Hashing"
+sidebarTitle: "Hash"
+description: "build_hash() generates a unique, repeatable MD5 hex string from any Python object by combining its string representation and type, using hashlib."
+---
+
+The `build_hash` function produces a stable, deterministic MD5 hex digest for any Python object by encoding both `str(_obj)` and `str(type(_obj))` before hashing. Combining the string representation with the type annotation is critical for collision safety — without the type component, the integer `42`, the float `42.0`, and the string `'42'` would all produce the same hash because `str()` renders them identically. Use `build_hash` wherever you need a consistent, reproducible key: cache key generation, request deduplication, content-addressable storage, or fingerprinting intermediate pipeline results.
+
+## Function Signature
+
+```python
+def build_hash(_obj: object) -> str
+```
+
+<ParamField path="_obj" type="object" required>
+  Any Python object. The function calls `str(_obj)` to obtain the object's representation and `str(type(_obj))` to capture its type. For custom classes, define `__str__` or `__repr__` to ensure consistent output across sessions.
+</ParamField>
+
+**Returns:** A 32-character lowercase hexadecimal string — the MD5 digest of the combined representation and type encoding.
+
+## Usage Examples
+
+The following examples demonstrate how `build_hash` handles primitives, collections, and custom objects. Notice that values that look identical in string form — such as `42` (int) and `'42'` (str) — produce distinct hashes because their types differ.
+
+```python
+from components.tools.hash.md5 import build_hash
+
+# Primitives
+print(build_hash('hello'))      # consistent hex string
+print(build_hash(42))           # different from build_hash('42')
+print(build_hash(42.0))         # different from build_hash(42)
+
+# Collections
+print(build_hash([1, 'a']))     # consistent for same list
+print(build_hash({'x': 1}))    # consistent for same dict
+
+# Custom objects
+class Point:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+
+p = Point(1, 2)
+print(build_hash(p) == build_hash(p))  # True
+```
+
+## Using `build_hash` as a Cache Key
+
+A common pattern is to hash a dictionary of query parameters or function arguments to produce a compact, fixed-length cache key. This avoids dealing with arbitrarily long or complex key strings while guaranteeing that two semantically identical parameter sets always map to the same key.
+
+```python
+from components.tools.hash.md5 import build_hash
+from components.storage.dynamic.cache.local.engines import InMemoryCacheEngine
+
+cache = InMemoryCacheEngine()
+params = {'query': 'SELECT *', 'limit': 100}
+key = build_hash(params)
+cache.set(key, [{'id': 1}, {'id': 2}], timeout=60)
+```
+
+<Note>
+  `build_hash` relies on `str()` for object representation. For custom classes, define `__repr__` or `__str__` to ensure stable hashing across interpreter sessions. Without an explicit representation, the default `object.__repr__` includes the memory address, which changes between runs and breaks repeatability.
+</Note>
+
+<Warning>
+  MD5 is not cryptographically secure. Do not use `build_hash` for security-sensitive purposes such as password storage or HMAC signatures. It is intended solely for deterministic key generation in caching and deduplication workflows.
+</Warning>
