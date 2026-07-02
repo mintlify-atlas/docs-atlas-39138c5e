@@ -1,21 +1,32 @@
 ---
 title: "ExceptionsUtils: Guard Helpers for Input Validation"
 sidebarTitle: "Exceptions"
-description: "ExceptionsUtils provides lightweight guard helpers that raise descriptive exceptions when required keys are missing from dictionaries or kwargs."
+description: "ExceptionsUtils provides a lightweight guard helper that raises a descriptive exception when a required key is missing from a dictionary or options map."
 ---
 
-`ExceptionsUtils` is a static-method utility class that centralises the repetitive pattern of validating required keys before a function proceeds. Rather than scattering `if key not in options: raise Exception(...)` blocks across your codebase, you delegate that check to a single, consistently worded guard. Kimera Core uses this internally — for example, `RawZipExtractor` calls `raise_exception_if_key_not_in_dict('filename', options)` to assert that callers always supply the required `filename` key before any file I/O begins. The resulting error messages are human-readable and actionable, making misconfiguration obvious at development time.
+`ExceptionsUtils` is a static-method utility class that centralises the repetitive pattern of validating required keys before a function proceeds. Rather than scattering `if key not in options: raise Exception(...)` blocks across your codebase, you delegate that check to a single, consistently worded guard. The resulting error messages are human-readable and actionable, making misconfiguration obvious at development time.
+
+## Import
+
+```python
+from components.tools.utils.exceptions import ExceptionsUtils
+```
 
 ## `raise_exception_if_key_not_in_dict`
 
-Checks whether `key` is present in `_dict` and raises an `Exception` with a descriptive message if it is not. The check uses Python's `in` operator, so it works with any mapping type including plain `dict` and `**kwargs`.
+Checks whether `key` is present in `_dict` and raises an `Exception` with a descriptive message if it is not. The check uses Python's `in` operator, so it works with any mapping type including plain `dict` and unpacked `**kwargs`.
 
-<ParamField path="key" type="str" required>
-  The key that must be present in the dictionary. Used verbatim in the error message.
+```python
+@staticmethod
+def raise_exception_if_key_not_in_dict(key, _dict)
+```
+
+<ParamField path="key" required>
+  The key that must be present in the dictionary. No type annotation is defined in the source — any hashable value is accepted. The key is used verbatim in the error message.
 </ParamField>
 
-<ParamField path="_dict" type="dict" required>
-  The dictionary (or unpacked `**kwargs`) to inspect. No exception is raised when `key` is found.
+<ParamField path="_dict" required>
+  The dictionary (or any mapping) to inspect. No type annotation is defined in the source. No exception is raised when `key` is found.
 </ParamField>
 
 **Raises:** `Exception` with message `Key {key} not defined in options. Please define it!` when the key is absent.
@@ -51,3 +62,7 @@ def process_data(**kwargs):
 <Tip>
   Chain multiple guard calls at the top of any function that accepts an options dict. This creates a self-documenting contract: every required key is listed explicitly, and the error messages guide callers directly to what is missing.
 </Tip>
+
+<Note>
+  The raised exception is a plain `Exception`, not a subclass such as `KeyError` or `ValueError`. Catch it with a bare `except Exception` or let it propagate to the top-level error handler.
+</Note>

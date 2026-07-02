@@ -4,7 +4,7 @@ sidebarTitle: "Introduction"
 description: "Kimera Core provides caching, serialization, hashing, logging, and extraction utilities for Python 3.6+. Build faster with reusable, tested components."
 ---
 
-Kimera Core is a lightweight Python utility library designed to eliminate repetitive boilerplate when building production-grade applications. It ships a cohesive set of components — in-memory and thread-local caching, smart JSON serialization, MD5 hashing, structured logging, and module introspection — so you can focus on your domain logic instead of reinventing infrastructure primitives. It targets Python 3.6 and above, carries no mandatory third-party dependencies, and is straightforward to extend thanks to its abstract-base-class architecture.
+Kimera Core is a lightweight Python utility library designed to eliminate repetitive boilerplate when building production-grade applications. It ships a cohesive set of components — in-memory and thread-local caching, smart JSON serialization, MD5 hashing, a Logstash-compatible logging handler, and module introspection — so you can focus on your domain logic instead of reinventing infrastructure primitives. It targets Python 3.6 and above, carries no mandatory third-party dependencies, and is straightforward to extend thanks to its abstract-base-class architecture.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ The serializer subsystem follows the same pattern. `BaseSerializerHandler` (ABC)
     `ExceptionsUtils` provides guard helpers, such as raising on missing dictionary keys, that keep validation logic concise.
   </Card>
   <Card title="Logger" icon="scroll" href="/utilities/logger">
-    Structured logging wrapper that standardises log output across all Kimera Core components.
+    `KimeraLogstashHandler` extends Python's `DatagramHandler` to serialise log records as UTF-8 strings and forward them to a Logstash UDP endpoint.
   </Card>
 </CardGroup>
 

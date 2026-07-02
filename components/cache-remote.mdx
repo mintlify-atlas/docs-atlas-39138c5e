@@ -46,7 +46,7 @@ Neither adapter ships with a hard dependency. The required client library is imp
     Calls `redis.get(key)`. Returns the stored bytes value, or `None` if the key does not exist. Note that Redis always returns values as `bytes` — decode as needed.
   </Accordion>
   <Accordion title="set(key: str, value: object, timeout: float = None, size: int = None) -> None">
-    Calls `redis.set(key, value, timeout)`. The `timeout` value is passed directly to the Redis driver as the `ex` (expiry in seconds) argument. The `size` parameter is accepted for interface compatibility but is not used.
+    Calls `self._redis.set(key, value, timeout)`, passing `timeout` as the third positional argument to the Redis client. The `size` parameter is accepted for interface compatibility but is not used.
   </Accordion>
   <Accordion title="exists(key: str) -> bool">
     Calls `self.get(key)` and returns `True` if the result is not `None`.
@@ -138,5 +138,5 @@ store_result(RedisEngine(),         'job:1', {'status': 'done'})
 The shared contract covers `get`, `set`, `delete`, `exists`, and `clear`. The `close` method is additional on remote engines and has no equivalent on local engines.
 
 <Warning>
-  The remote engines do **not** yet support `size` regulation or normalized TTL conversion like the local engines. The `timeout` value is passed directly to the backend driver (Redis `set(..., ex=timeout)` or Memcached, which currently ignores it). Do not rely on size-based eviction or TTL when using remote adapters until these features are implemented.
+  The remote engines do **not** yet support `size` regulation or normalized TTL conversion like the local engines. For Redis, `timeout` is forwarded as a raw positional argument to the client's `set` call. For Memcached, `timeout` is accepted but not yet forwarded to the underlying `pymemcache` client. Do not rely on size-based eviction or TTL guarantees when using remote adapters until these features are fully implemented.
 </Warning>

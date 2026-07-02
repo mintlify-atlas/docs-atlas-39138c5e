@@ -1,10 +1,16 @@
 ---
-title: "MD5 Hash Utility: Deterministic Object Hashing"
+title: "Hash Utility: MD5 Fingerprinting for Python Objects"
 sidebarTitle: "Hash"
-description: "build_hash() generates a unique, repeatable MD5 hex string from any Python object by combining its string representation and type, using hashlib."
+description: "build_hash() generates a repeatable MD5 hex digest from any Python object by encoding both its string representation and type with hashlib."
 ---
 
-The `build_hash` function produces a stable, deterministic MD5 hex digest for any Python object by encoding both `str(_obj)` and `str(type(_obj))` before hashing. Combining the string representation with the type annotation is critical for collision safety — without the type component, the integer `42`, the float `42.0`, and the string `'42'` would all produce the same hash because `str()` renders them identically. Use `build_hash` wherever you need a consistent, reproducible key: cache key generation, request deduplication, content-addressable storage, or fingerprinting intermediate pipeline results.
+The `build_hash` function produces a stable, deterministic MD5 hex digest for any Python object by encoding both `str(_obj)` and `str(type(_obj))` before hashing. Combining the string representation with the type is critical for collision safety — without the type component, the integer `42`, the float `42.0`, and the string `'42'` would all produce the same hash because `str()` renders them identically. Use `build_hash` wherever you need a consistent, reproducible key: cache key generation, request deduplication, content-addressable storage, or fingerprinting intermediate pipeline results.
+
+## Import
+
+```python
+from components.tools.hash.md5 import build_hash
+```
 
 ## Function Signature
 
@@ -18,6 +24,16 @@ def build_hash(_obj: object) -> str
 
 **Returns:** A 32-character lowercase hexadecimal string — the MD5 digest of the combined representation and type encoding.
 
+## How the Hash Is Built
+
+Internally the function concatenates two encoded byte strings and passes them to `hashlib.md5`:
+
+```python
+hashlib.md5(str(_obj).encode() + str(type(_obj)).encode()).hexdigest()
+```
+
+The result is deterministic for any object whose `str()` output is stable. For custom classes that do not define `__str__` or `__repr__`, the default `object.__repr__` includes the memory address — which changes between interpreter runs — so the hash will not be reproducible across sessions.
+
 ## Usage Examples
 
 The following examples demonstrate how `build_hash` handles primitives, collections, and custom objects. Notice that values that look identical in string form — such as `42` (int) and `'42'` (str) — produce distinct hashes because their types differ.
@@ -25,7 +41,7 @@ The following examples demonstrate how `build_hash` handles primitives, collecti
 ```python
 from components.tools.hash.md5 import build_hash
 
-# Primitives
+# Primitives — same value, different types, different hashes
 print(build_hash('hello'))      # consistent hex string
 print(build_hash(42))           # different from build_hash('42')
 print(build_hash(42.0))         # different from build_hash(42)
@@ -34,10 +50,13 @@ print(build_hash(42.0))         # different from build_hash(42)
 print(build_hash([1, 'a']))     # consistent for same list
 print(build_hash({'x': 1}))    # consistent for same dict
 
-# Custom objects
+# Custom objects — stable hash requires a stable __str__
 class Point:
     def __init__(self, x, y):
         self.x, self.y = x, y
+
+    def __str__(self):
+        return f'Point({self.x}, {self.y})'
 
 p = Point(1, 2)
 print(build_hash(p) == build_hash(p))  # True
@@ -49,12 +68,10 @@ A common pattern is to hash a dictionary of query parameters or function argumen
 
 ```python
 from components.tools.hash.md5 import build_hash
-from components.storage.dynamic.cache.local.engines import InMemoryCacheEngine
 
-cache = InMemoryCacheEngine()
 params = {'query': 'SELECT *', 'limit': 100}
-key = build_hash(params)
-cache.set(key, [{'id': 1}, {'id': 2}], timeout=60)
+cache_key = build_hash(params)
+print(cache_key)  # e.g. 'a3f1c7d2e5b04918...' (32 hex chars)
 ```
 
 <Note>

@@ -1,21 +1,32 @@
 ---
 title: "ImportUtils: Dynamic Module Loading and Inspection"
 sidebarTitle: "Import Utils"
-description: "ImportUtils provides safe module existence checks, dynamic attribute loading via importlib, fully-qualified class name resolution, and attribute introspection."
+description: "ImportUtils provides safe module existence checks, dynamic attribute loading via importlib, fully-qualified name resolution, and attribute introspection."
 ---
 
 `ImportUtils` is a static-method utility class that wraps Python's `importlib` to provide safe, ergonomic helpers for runtime module management. Dynamic imports are essential in plugin systems where backends are optional — for example, a cache layer that supports Redis, Memcached, or an in-memory fallback should only attempt to import `redis` or `pymemcache` when those adapters are actually requested. `ImportUtils` handles that gracefully, offering existence checks, guarded imports, fully-qualified name resolution, and attribute discovery — all without requiring the caller to manage `importlib` directly.
 
+## Import
+
+```python
+from components.tools.utils._import import ImportUtils
+```
+
 ## `module_exists`
 
 Checks whether a module can be successfully imported and returns a boolean result. Internally it calls `importlib.import_module` and catches `ModuleNotFoundError`, making it safe to call even when the target package is not installed.
+
+```python
+@staticmethod
+def module_exists(module_name: str, package_name: str = None) -> bool
+```
 
 <ParamField path="module_name" type="str" required>
   The dotted module name to check, e.g. `'redis'` or `'components.tools.hash.md5'`.
 </ParamField>
 
 <ParamField path="package_name" type="str">
-  Optional anchor package for resolving relative imports. Pass this when `module_name` is a relative reference such as `'.sibling_module'`.
+  Optional anchor package for resolving relative imports. Pass this when `module_name` is a relative reference such as `'.sibling_module'`. Required when performing a relative import.
 </ParamField>
 
 **Returns:** `True` if the module is importable, `False` otherwise.
@@ -23,14 +34,19 @@ Checks whether a module can be successfully imported and returns a boolean resul
 ```python
 from components.tools.utils._import import ImportUtils
 
-print(ImportUtils.module_exists('json'))     # True
-print(ImportUtils.module_exists('redis'))    # True if redis is installed
-print(ImportUtils.module_exists('notreal'))  # False
+print(ImportUtils.module_exists('json'))      # True
+print(ImportUtils.module_exists('hashlib'))   # True
+print(ImportUtils.module_exists('notreal'))   # False
 ```
 
 ## `raise_exception_if_module_not_exists`
 
-A guard helper that combines the existence check with an immediate `ModuleNotFoundError` raise. It is used internally by adapters such as `RedisEngine` and `MemcachedEngine` to produce actionable error messages before any attribute access is attempted on a missing module.
+A guard helper that combines the existence check with an immediate `ModuleNotFoundError` raise. Place this at the top of any adapter that depends on an optional package to produce an actionable error message before any attribute access is attempted on a missing module.
+
+```python
+@staticmethod
+def raise_exception_if_module_not_exists(module_name: str, msg: str = None)
+```
 
 <ParamField path="module_name" type="str" required>
   The dotted module name that must be importable.
@@ -40,44 +56,91 @@ A guard helper that combines the existence check with an immediate `ModuleNotFou
   Optional custom error message. When omitted, the default message is: `"Module '{module_name}' does not exist. Please add it!"`
 </ParamField>
 
+**Raises:** `ModuleNotFoundError` if the module cannot be imported.
+
 ```python
 from components.tools.utils._import import ImportUtils
 
-# Raises: ModuleNotFoundError: Module 'redis' does not exist. Please add it!
-ImportUtils.raise_exception_if_module_not_exists('redis')
+# Raises: ModuleNotFoundError: Module 'notreal' does not exist. Please add it!
+ImportUtils.raise_exception_if_module_not_exists('notreal')
+
+# Custom message
+ImportUtils.raise_exception_if_module_not_exists('redis', msg='Install redis: pip install redis')
 ```
 
 ## `fullname`
 
 Resolves the fully-qualified class name — `module.ClassName` — for any live Python object. This is useful for serialization, logging, or building registry keys that must survive across process boundaries.
 
-**Returns:** A dotted string such as `'components.tools.serializers.custom.KimeraSerializer'`. For built-in types whose module is `builtins`, only the class name is returned to avoid `builtins.int`-style noise.
+```python
+@staticmethod
+def fullname(_object: object) -> str
+```
+
+<ParamField path="_object" type="object" required>
+  Any Python object whose class name should be resolved.
+</ParamField>
+
+**Returns:** A dotted string such as `'components.tools.hash.md5.build_hash'`. For built-in types whose module is `builtins`, only the class name is returned to avoid `builtins.int`-style noise.
 
 ```python
 from components.tools.utils._import import ImportUtils
-from components.tools.serializers.custom import KimeraSerializer
 
-s = KimeraSerializer()
-print(ImportUtils.fullname(s))
-# 'components.tools.serializers.custom.KimeraSerializer'
+print(ImportUtils.fullname(42))        # 'int'  (builtin — no module prefix)
+print(ImportUtils.fullname('hello'))   # 'str'
+
+class MyClass:
+    pass
+
+obj = MyClass()
+print(ImportUtils.fullname(obj))  # '__main__.MyClass' (or fully-qualified in a package)
 ```
 
 ## `get_parts_of_fullname`
 
 Splits a fully-qualified dotted name into its module path and terminal attribute name. The split always occurs at the last dot, so both class names and function names are handled uniformly.
 
-**Returns:** A dict with keys `'module_name'` and `'attribute_name'`.
+```python
+@staticmethod
+def get_parts_of_fullname(fullname: str) -> dict
+```
+
+<ParamField path="fullname" type="str" required>
+  A fully-qualified dotted name, e.g. `'components.tools.hash.md5.build_hash'`.
+</ParamField>
+
+**Returns:** A dict with keys `'module_name'` and `'attribute_name'` when the input contains at least one dot. Returns `None` implicitly when the input is a simple name with no dot (i.e. `len(parts) <= 1`).
 
 ```python
 from components.tools.utils._import import ImportUtils
 
 parts = ImportUtils.get_parts_of_fullname('components.tools.hash.md5.build_hash')
 # {'module_name': 'components.tools.hash.md5', 'attribute_name': 'build_hash'}
+
+parts = ImportUtils.get_parts_of_fullname('build_hash')
+# None  — no dot present, no explicit return value
 ```
+
+<Warning>
+  `get_parts_of_fullname` returns `None` when the input string contains no dot. Always check the return value before accessing `'module_name'` or `'attribute_name'` to avoid a `TypeError` on `None`.
+</Warning>
 
 ## `get_attr_of_module`
 
 Dynamically imports a module by dotted name and retrieves a named attribute from it using `getattr`. This lets you defer imports until they are needed and reference functions or classes by string configuration values.
+
+```python
+@staticmethod
+def get_attr_of_module(module_name: str, attribute_name: str) -> object
+```
+
+<ParamField path="module_name" type="str" required>
+  The fully-qualified dotted module name to import, e.g. `'components.tools.hash.md5'`.
+</ParamField>
+
+<ParamField path="attribute_name" type="str" required>
+  The name of the attribute to retrieve from the imported module.
+</ParamField>
 
 **Returns:** The attribute object — a class, function, constant, or any other module-level name.
 
@@ -92,12 +155,25 @@ print(fn({'key': 'value'}))  # MD5 hex string
 
 A thin wrapper around Python's built-in `hasattr` that fits naturally into the `ImportUtils` API when performing pre-flight checks before dynamic dispatch.
 
-**Returns:** `True` if the object has an attribute with the given name, `False` otherwise.
+```python
+@staticmethod
+def attribute_exist(_object_name: object, attribute_name: str) -> object
+```
+
+<ParamField path="_object_name" type="object" required>
+  The object to inspect.
+</ParamField>
+
+<ParamField path="attribute_name" type="str" required>
+  The attribute name to look up via `hasattr`.
+</ParamField>
+
+**Returns:** `True` if the object has an attribute with the given name, `False` otherwise. The return type annotation in source is `object`, but the underlying `hasattr` call always returns a `bool`.
 
 ```python
 from components.tools.utils._import import ImportUtils
-from components.storage.dynamic.cache.local.engines import InMemoryCacheEngine
 
-cache = InMemoryCacheEngine()
-print(ImportUtils.attribute_exist(cache, 'get'))  # True
+print(ImportUtils.attribute_exist('hello', 'upper'))   # True
+print(ImportUtils.attribute_exist('hello', 'encode'))  # True
+print(ImportUtils.attribute_exist(42, 'upper'))        # False
 ```

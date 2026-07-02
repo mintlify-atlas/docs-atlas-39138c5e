@@ -1,5 +1,5 @@
 ---
-title: "Installing Kimera Core in your Python project"
+title: "How to Install Kimera Core into Your Python Project"
 sidebarTitle: "Installation"
 description: "Install kimera-core via pip from PyPI or TestPyPI. Requires Python 3.6 or later. Optional deps unlock Redis and Memcached remote cache backends."
 ---
@@ -86,7 +86,7 @@ To contribute to Kimera Core or run its test suite locally, clone the repository
   </Step>
 
   <Step title="Run the test suite">
-    Invoking `tox` with no arguments executes the `coverage` environment defined in `tox.ini`. It discovers all unit tests under the `test/` directory, runs them against the `components` source tree, and prints a line-by-line coverage report.
+    Invoking `tox` with no arguments executes the `coverage` environment defined in `tox.ini`. It uses `unittest discover` to find all unit tests starting from the project root, runs them against the `components` source tree, and prints a line-by-line coverage report.
 
     ```bash
     tox

@@ -1,10 +1,17 @@
 ---
-title: "Logger: Structured Logging with Logstash Support"
+title: "Logger: UDP Log Shipping with KimeraLogstashHandler"
 sidebarTitle: "Logger"
 description: "Kimera Core includes KimeraLogstashHandler, a UDP DatagramHandler that serializes log records as plain text, plus a ready-to-use DICT_CONFIG."
 ---
 
 The `logger` module delivers two complementary pieces: `KimeraLogstashHandler`, a custom UDP handler that ships log records as plain UTF-8 text to a Logstash endpoint, and `DICT_CONFIG`, a ready-to-use dictionary that wires up formatters, handlers, and named loggers in a single `logging.config.dictConfig` call. Together they let you add structured log shipping to any Kimera Core application with minimal configuration. UDP log shipping is a good fit for high-throughput services where a dropped log record is acceptable but blocking on a TCP handshake is not.
+
+## Import
+
+```python
+from components.tools.utils.logger import DICT_CONFIG, KimeraLogstashHandler
+import logging.handlers  # provides DatagramHandler (parent class)
+```
 
 ## `KimeraLogstashHandler`
 
@@ -19,13 +26,17 @@ The `logger` module delivers two complementary pieces: `KimeraLogstashHandler`, 
   </Card>
 </CardGroup>
 
-**`makePickle(record: logging.LogRecord) -> bytes`**
+### `makePickle`
 
-Serialises the log record by calling `self.format(record)` (which applies the configured formatter) and encoding the resulting string as UTF-8 bytes. The return value is transmitted directly as the UDP payload.
+```python
+def makePickle(self, record: logging.LogRecord) -> bytes
+```
+
+Serialises the log record by calling `self.format(record)` (which applies the configured formatter) and encoding the resulting string as UTF-8 bytes via `str.encode(...)`. The return value is transmitted directly as the UDP payload.
 
 ## `DICT_CONFIG`
 
-`DICT_CONFIG` is a fully populated `logging.config.dictConfig`-compatible dictionary that can be used as-is or extended. Its structure follows the standard Python logging schema:
+`DICT_CONFIG` is a fully populated `logging.config.dictConfig`-compatible dictionary that can be used as-is or extended. Its top-level keys follow the standard Python logging schema: `version: 1`, `disable_existing_loggers: False`, `formatters`, `handlers`, and `loggers`.
 
 <Accordion title="Formatters (3 defined)">
   All three formatters use the same format string for consistent output across transports:
@@ -35,9 +46,9 @@ Serialises the log record by calling `self.format(record)` (which applies the co
   ```
 
   | Name | Purpose |
-  |------|---------|
+  |------|---------| 
   | `stream` | Applied to the console stream handler |
-  | `file` | Applied to the (commented-out) file handler |
+  | `file` | Defined for use with a file handler (see note below) |
   | `logstash` | Applied to the UDP Logstash handler |
 </Accordion>
 
@@ -51,7 +62,13 @@ Serialises the log record by calling `self.format(record)` (which applies the co
 </Accordion>
 
 <Accordion title="Loggers (2 defined)">
-  Both `logger1` and `logger2` are configured identically: level `DEBUG`, `propagate: True`, and both `stream_handler` and `logstash_handler` attached.
+  Both `logger1` and `logger2` are configured identically:
+
+  | Setting | Value |
+  |---------|-------|
+  | `level` | `DEBUG` |
+  | `propagate` | `True` |
+  | `handlers` | `['stream_handler', 'logstash_handler']` |
 </Accordion>
 
 ## Configuring and Using the Logger
@@ -77,6 +94,7 @@ Because `DICT_CONFIG` is a plain Python dictionary, you can deep-copy it and mod
 
 ```python
 import copy
+import logging.config
 from components.tools.utils.logger import DICT_CONFIG
 
 config = copy.deepcopy(DICT_CONFIG)
@@ -87,6 +105,8 @@ config['handlers']['file_handler'] = {
     'formatter': 'file'
 }
 config['loggers']['logger1']['handlers'].append('file_handler')
+
+logging.config.dictConfig(config)
 ```
 
 After this change, `logger1` will write `ERROR`-level records to `records.log` in addition to streaming them to the console and shipping them over UDP.

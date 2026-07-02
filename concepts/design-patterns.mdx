@@ -1,7 +1,7 @@
 ---
-title: "Design Patterns Used in Kimera Core Python Library"
+title: "Design Patterns in Kimera Core: Singleton, Strategy, More"
 sidebarTitle: "Design Patterns"
-description: "Kimera Core uses the Singleton, Strategy, Template Method, and Decorator patterns. Learn how each applies and how to extend them in your own Python code."
+description: "Singleton, Strategy, Template Method, and Decorator patterns in Kimera Core — four Python Singleton implementations and real cache engine code examples."
 ---
 
 Design patterns are reusable solutions to problems that recur again and again in software design. Introduced formally by the *Gang of Four* (GoF) in their landmark 1994 book, each pattern has four essential elements: a **name**, a description of the **problem** it solves, the **solution** structure, and the **consequences** of applying it. Kimera Core draws on four patterns — Singleton, Strategy, Template Method, and Decorator — to keep its cache and serialization subsystems modular, testable, and easy to extend. This page explains what each pattern is, where it appears in the library, and how to apply it in your own code.
@@ -51,8 +51,8 @@ Python offers several ways to implement the Singleton pattern. Each has differen
   - `type(n)()` bypasses the singleton guard and creates a new instance.
 </Accordion>
 
-<Accordion title="2. Base Class (by Inheritance)">
-  A `Singleton` base class overrides `__call__` via its metaclass so that every subclass automatically enforces single-instance semantics.
+<Accordion title="2. Base Class">
+  A `Singleton` metaclass overrides `__call__` so that any class that uses it as its metaclass automatically enforces single-instance semantics.
 
   ```python
   class Singleton(type):
@@ -76,11 +76,11 @@ Python offers several ways to implement the Singleton pattern. Each has differen
   - `MyClass` remains a true class; `isinstance()` and `issubclass()` work correctly.
 
   **Cons**
-  - Multiple inheritance requires extra care — if another base class also defines `__new__` or uses a metaclass, conflicts can arise and must be resolved explicitly.
+  - Multiple inheritance is tricky — if a second base class also defines `__new__` or uses its own metaclass, conflicts must be resolved explicitly.
 </Accordion>
 
 <Accordion title="3. Metaclass">
-  The metaclass approach is the most Pythonic: `__metaclass__` is exactly the right hook for controlling class instantiation, and it automatically handles inheritance.
+  The metaclass approach uses the metaclass hook for controlling class instantiation, and it automatically handles inheritance for all subclasses.
 
   ```python
   class Singleton(type):
@@ -105,10 +105,10 @@ Python offers several ways to implement the Singleton pattern. Each has differen
   **Pros**
   - True class; all reflection and introspection work normally.
   - Inheritance is handled automatically — subclasses of `MyClass` also become singletons.
-  - Uses `__metaclass__` for its intended purpose.
+  - Uses the metaclass hook for its intended purpose.
 
   **Cons**
-  - Slightly unfamiliar to developers who have not worked with metaclasses before.
+  - No known disadvantages.
 </Accordion>
 
 <Accordion title="4. Decorator Returning a Class">
@@ -146,12 +146,7 @@ Python offers several ways to implement the Singleton pattern. Each has differen
       pass
   ```
 
-  **Pros**
-  - The returned object is still a class, so `isinstance()` works.
-  - Enforces single initialization via the `_sealed` flag.
-
-  **Cons**
-  - More complex than the function-decorator approach; the wrapper class adds an extra layer of indirection that can confuse debuggers and profilers.
+  No specific pros or cons have been identified for this approach beyond those of the function-decorator variant above.
 </Accordion>
 
 ---
@@ -162,7 +157,7 @@ Python offers several ways to implement the Singleton pattern. Each has differen
 
 The **Strategy** pattern defines a family of algorithms, encapsulates each one, and makes them interchangeable. Client code programs against an abstract interface and selects a concrete strategy at runtime.
 
-In Kimera Core, `BaseCacheEngine` is the strategy interface. `InMemoryCacheEngine` and `ThreadCacheEngine` (and `RemoteCacheEngine` for distributed scenarios) are concrete strategies. Swapping the engine requires changing only one constructor call — no other code changes.
+In Kimera Core, `BaseCacheEngine` is the strategy interface. `InMemoryCacheEngine` and `ThreadCacheEngine` are concrete strategies. Swapping the engine requires changing only one constructor call — no other code changes.
 
 ```python
 from components.storage.dynamic.cache.local.engines import (
@@ -237,6 +232,6 @@ rate = ThreadCacheEngine().get("exchange_rate")
 | Pattern | Category | Where Used in Kimera Core |
 |---|---|---|
 | Singleton | Creational | Recommended for `InMemoryCacheEngine` shared instances |
-| Strategy | Structural | Cache engine selection (`BaseCacheEngine` implementations) |
+| Strategy | Behavioral | Cache engine selection (`BaseCacheEngine` implementations) |
 | Template Method | Behavioral | `LocalCacheEngine` subclassing (`size_regulator`, CRUD methods) |
 | Decorator | Structural | `@thread_local_cache`, `@in_memory_local_cache` |

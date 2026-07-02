@@ -37,10 +37,19 @@ Python's standard `json.dumps` rejects many common types — `datetime`, `date`,
 
 <AccordionGroup>
   <Accordion title="serialize(object) -> str">
-    Selects the appropriate handler for the object and returns a JSON string envelope containing `{'data': ..., 'serializer': '<HandlerClassName>'}`.
+    Finds the first handler whose `can_i_handle_object_to_serialize` returns `True` and calls its `build_serializer`. Returns a JSON string envelope of the form `{'data': ..., 'serializer': '<HandlerClassName>'}`.
   </Accordion>
-  <Accordion title="deserialize(str) -> object">
-    Reads the `serializer` field from the JSON envelope to identify the correct handler and reconstructs the original Python object.
+  <Accordion title="deserialize(object) -> object">
+    Reads the `serializer` field from a JSON envelope string to identify the correct handler, then calls `build_deserializer` to reconstruct the original Python object.
+  </Accordion>
+  <Accordion title="get_serializer_from_object(object) -> BaseSerializerHandler">
+    Filters the handler list for the first handler whose `can_i_handle_object_to_serialize` returns `True` for the given object and returns that handler instance. Raises an `Exception` if no handler is found.
+  </Accordion>
+  <Accordion title="get_deserializer_from_object(object) -> BaseSerializerHandler">
+    Filters the handler list for the first handler whose `can_i_handle_object_to_deserialize` returns `True` for the given serialized string and returns that handler instance. Raises an `Exception` if no handler is found.
+  </Accordion>
+  <Accordion title="can_any_advanced_serializer_handle_this_object(object) -> bool">
+    Returns `True` if any handler **except** `DefaultSerializerHandler` (the last entry) can handle the object for serialization. Used by `KimeraEncoder.default` to decide whether to delegate to `KimeraSerializer` or fall back to the standard encoder.
   </Accordion>
 </AccordionGroup>
 
@@ -96,7 +105,7 @@ print(restored['created'])  # datetime(2024, 1, 15, 12, 0, 0)
 </Steps>
 
 <Tip>
-  `DateSerializerHandler` must appear **before** `DateTimeSerializerHandler` in the chain because `datetime` is a subclass of `date`. Reversing the order would cause all `date` objects to be incorrectly matched by the `datetime` handler.
+  `DateSerializerHandler` appears **before** `DateTimeSerializerHandler` in the chain. `DateSerializerHandler` uses an exact class check (`obj.__class__ == date`) so it will never match a `datetime` instance. `DateTimeSerializerHandler` uses `isinstance(obj, datetime)`, which would also match a plain `date` if it were placed first — so the ordering preserves correct round-trip behaviour for both types.
 </Tip>
 
 ## KimeraEncoder / KimeraDecoder
